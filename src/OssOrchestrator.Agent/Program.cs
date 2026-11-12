@@ -119,6 +119,21 @@ while (true)
             }
         }
 
+        // A session whose issue is closed is not shown. Only sessions missing from the open-issue list are checked on GitHub.
+        var shown = new List<SessionInfo>();
+        foreach (var sess in sessions)
+        {
+            var listed = issues.GetValueOrDefault(sess.Repo)?.Any(i => i.Number == sess.Issue) ?? false;
+            var folder = config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Folder;
+            var open = true;
+            if (!listed && folder is not null)
+            {
+                try { open = await github.IssueIsOpenAsync(folder, sess.Issue, CancellationToken.None); }
+                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read state of {sess.Repo}#{sess.Issue}: {e.Message}"); }
+            }
+            if (open) shown.Add(sess);
+        }
+
         await db.PutStateAsync(new StateDoc
         {
             At = DateTimeOffset.UtcNow,
@@ -134,7 +149,7 @@ while (true)
                 OpenIssues = issues.TryGetValue(r.Repo, out var list) ? list.Count : 0,
                 Error = errors.GetValueOrDefault(r.Repo),
             }).ToList(),
-            Sessions = sessions.Select(sess =>
+            Sessions = shown.Select(sess =>
             {
                 // The open PR for the issue, or else its newest merged or closed PR, so finished work still shows its PR.
                 var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue)

@@ -121,6 +121,14 @@ public sealed class GitHub
         return result;
     }
 
+    /// <summary>True while the issue is open. Used for a session whose issue is not in the open-issue list.</summary>
+    public async Task<bool> IssueIsOpenAsync(string folder, int issue, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "issue", "view", issue.ToString(), "--json", "state");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("state").GetString() == "OPEN";
+    }
+
     /// <summary>The issue number in a branch name such as fix/1531-short-name, or null.</summary>
     public static int? IssueFromBranch(string branch)
     {
