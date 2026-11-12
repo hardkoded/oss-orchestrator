@@ -226,6 +226,9 @@ static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bo
     try
     {
         await herdr.CloseSessionAsync(repo.Repo, n, CancellationToken.None);
+        // The session is released, so the issue is no longer in progress.
+        try { await IssueLabels.RemoveInProgressAsync(repo.Folder, n, CancellationToken.None); }
+        catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not clear in-progress on {repo.Repo}#{n}: {e.Message}"); }
         return $"blocked {repo.Repo} #{n} and closed its session";
     }
     catch (Exception e)
