@@ -2,7 +2,7 @@
 @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#171a21; --fg:#e6e8ee; --muted:#9aa3b2; --line:#262b36; --accent:#60a5fa; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; } }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
 header { display:flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 h1 { font-size: 18px; font-weight: 600; margin: 0; }
 nav a { color: var(--accent); text-decoration: none; font-size: 14px; }
@@ -14,7 +14,8 @@ h2 { font-size: 12px; font-weight: 600; margin: 0 0 12px; color: var(--muted); t
 .kpi b { display:block; font-size: 22px; font-weight: 600; line-height: 1.2; }
 .kpi span { color: var(--muted); font-size: 12px; }
 table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+th, td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: middle; white-space: normal; }
+td button, td .pill, td a { white-space: nowrap; }
 th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: none; padding-top: 0; }
 td.num { font-variant-numeric: tabular-nums; }
 .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

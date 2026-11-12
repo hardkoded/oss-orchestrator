@@ -36,6 +36,9 @@ public sealed class CommandDoc
     public JsonElement? Value { get; set; }
     public bool Processed { get; set; }
     public string? Result { get; set; }
+    // Kept as written by the dashboard: the agent saves the whole document when it marks a command processed.
+    public DateTimeOffset CreatedAt { get; set; }
+    public string? By { get; set; }
 }
 
 public sealed class StateDoc
