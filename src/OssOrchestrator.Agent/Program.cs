@@ -1,5 +1,6 @@
 using Azure;
 using Azure.Storage.Queues;
+using Azure.Storage.Queues.Models;
 
 // Local agent: reads commands the dashboard queued (pause, answer, limit, ...) and will
 // post session state back. The Claude sessions themselves run on this machine.
