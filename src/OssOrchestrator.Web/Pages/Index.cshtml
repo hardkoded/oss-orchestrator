@@ -191,18 +191,6 @@
     </div>
 
     <div class="card">
-        <h2>Planned next</h2>
-        @if (state is not null && state.Planned.Count > 0)
-        {
-            <p>@string.Join(", ", state.Planned)</p>
-        }
-        else
-        {
-            <p class="muted">Nothing planned right now.</p>
-        }
-    </div>
-
-    <div class="card">
         <h2>Recent commands</h2>
         @if (Model.Recent.Count == 0)
         {
