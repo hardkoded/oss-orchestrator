@@ -63,11 +63,14 @@ public sealed class SessionStatus
 {
     public string Repo { get; set; } = "";
     public int Issue { get; set; }
+    public string Title { get; set; } = "";
     public string Status { get; set; } = "";
     public int? PrNumber { get; set; }
     public string? PrUrl { get; set; }
     public bool PrConflict { get; set; }
     public bool PrDraft { get; set; }
+    /// <summary>pending, building, ready, failed or conflicted.</summary>
+    public string PrStatus { get; set; } = "pending";
 }
 
 public sealed class RepoIssues
@@ -81,6 +84,8 @@ public sealed class IssueStatus
     public int Number { get; set; }
     public string Title { get; set; } = "";
     public bool Assigned { get; set; }
+    public bool InProgress { get; set; }
+    public bool Blocked { get; set; }
     public bool Ignored { get; set; }
 }
 

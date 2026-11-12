@@ -12,6 +12,12 @@
         "idle" => "idle",
         _ => "no status",
     };
+    string PrStatusClass(string s) => s switch
+    {
+        "ready" => "on",
+        "failed" or "conflicted" => "paused",
+        _ => "",
+    };
 }
 <!doctype html>
 <html lang="en">
@@ -76,26 +82,27 @@
         else
         {
             <table>
-                <thead><tr><th>Repo</th><th>Issue</th><th>Session</th><th>PR</th><th></th></tr></thead>
+                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Session</th><th>PR</th><th>PR status</th><th></th></tr></thead>
                 <tbody>
                 @foreach (var s in state.Sessions)
                 {
                     <tr>
                         <td>@s.Repo</td>
                         <td class="num">#@s.Issue</td>
+                        <td class="title">@s.Title</td>
                         <td><span class="pill @(s.Status == "blocked" ? "paused" : s.Status == "working" ? "on" : "")">@StatusText(s.Status)</span></td>
                         <td>
                             @if (s.PrUrl is not null)
                             {
                                 <a href="@s.PrUrl" target="_blank" rel="noopener">#@s.PrNumber</a>
                                 @if (s.PrDraft) { <span class="pill">draft</span> }
-                                @if (s.PrConflict) { <span class="pill paused">conflicts</span> }
                             }
                             else
                             {
                                 <span class="muted">no PR yet</span>
                             }
                         </td>
+                        <td><span class="pill @PrStatusClass(s.PrStatus)">@s.PrStatus</span></td>
                         <td>
                             @if (s.PrConflict)
                             {
@@ -144,12 +151,14 @@
                             <td class="num">#@i.Number</td>
                             <td class="title">@i.Title</td>
                             <td>
-                                @if (i.Ignored) { <span class="pill">ignored</span> }
-                                else if (i.Assigned) { <span class="pill on">in progress</span> }
+                                @if (i.InProgress) { <span class="pill on">in-progress</span> }
+                                else if (i.Blocked) { <span class="pill paused">blocked</span> }
+                                else if (i.Assigned) { <span class="pill">assigned</span> }
+                                else if (i.Ignored) { <span class="pill">ignored</span> }
                                 else { <span class="muted">free</span> }
                             </td>
                             <td>
-                                @if (!i.Ignored && !i.Assigned)
+                                @if (!i.Ignored && !i.Assigned && !i.InProgress && !i.Blocked)
                                 {
                                     <form method="post" asp-page-handler="Command" class="inline">
                                         <input type="hidden" name="type" value="ignore" />

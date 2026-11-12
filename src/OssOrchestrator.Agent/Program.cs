@@ -66,10 +66,18 @@ while (true)
             await herdr.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
             if (!dryRun)
             {
-                // Assign first, so the issue is never offered twice, then record the launch in the database.
-                await IssueAssigner.AssignSelfAsync(repo.Folder, launch.Issue, CancellationToken.None);
+                // Record the launch first: the session is already running, so the issue must not be planned again
+                // even if the label step fails. The label is then best effort and logged when it fails.
                 repo.Launched[launch.Issue.ToString()] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 await db.SaveConfigAsync(config);
+                try
+                {
+                    await IssueLabels.MarkInProgressAsync(repo.Folder, launch.Issue, CancellationToken.None);
+                }
+                catch (Exception e)
+                {
+                    await log.WriteLineAsync($"{DateTime.Now:T} launched #{launch.Issue} but could not label it: {e.Message}");
+                }
             }
         }
 
@@ -91,15 +99,18 @@ while (true)
             Sessions = sessions.Select(sess =>
             {
                 var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
+                var title = issues.GetValueOrDefault(sess.Repo)?.FirstOrDefault(i => i.Number == sess.Issue)?.Title ?? "";
                 return new SessionStatus
                 {
                     Repo = sess.Repo,
                     Issue = sess.Issue,
+                    Title = title,
                     Status = sess.Status,
                     PrNumber = pr?.Number,
                     PrUrl = pr?.Url,
                     PrConflict = pr?.Mergeable == "CONFLICTING",
                     PrDraft = pr?.IsDraft ?? false,
+                    PrStatus = pr?.Status ?? "pending",
                 };
             }).ToList(),
             Issues = config.Repos.Select(r => new RepoIssues
@@ -110,6 +121,8 @@ while (true)
                     Number = i.Number,
                     Title = i.Title,
                     Assigned = i.Assigned,
+                    InProgress = i.InProgress,
+                    Blocked = i.Blocked,
                     Ignored = r.Ignored.Contains(i.Number),
                 }).ToList(),
             }).ToList(),

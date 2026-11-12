@@ -2,7 +2,8 @@ namespace OssOrchestrator.Agent;
 
 public sealed record RepoSettings(string Repo, string Folder, bool Paused, bool Auto);
 
-public sealed record IssueInfo(int Number, string Title, bool Assigned);
+/// <summary>An open issue. Assigned: a person owns it. InProgress: a session is on it. Blocked: shown, never taken.</summary>
+public sealed record IssueInfo(int Number, string Title, bool Assigned, bool InProgress = false, bool Blocked = false);
 
 /// <summary>What the planner sees right now. Pure data, no I/O.</summary>
 public sealed record PlanInput(
@@ -36,7 +37,7 @@ public static class Planner
             if (!input.IssuesByRepo.TryGetValue(repo.Repo, out var issues)) continue;
             foreach (var issue in issues)
             {
-                if (issue.Assigned) continue;
+                if (issue.Assigned || issue.InProgress || issue.Blocked) continue;
                 var key = $"{repo.Repo}#{issue.Number}";
                 if (input.Ignored.Contains(key)) continue;
                 if (input.LaunchedAt.TryGetValue(key, out var at) && input.NowMs - at < input.RecentLaunchMs) continue;

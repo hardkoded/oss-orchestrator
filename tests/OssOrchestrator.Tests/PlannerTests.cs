@@ -44,6 +44,19 @@ public class PlannerTests
     }
 
     [Fact]
+    public void Issues_labelled_in_progress_or_blocked_are_skipped()
+    {
+        var issues = new[]
+        {
+            new IssueInfo(1, "a", false, InProgress: true),
+            new IssueInfo(2, "b", false, Blocked: true),
+            new IssueInfo(3, "c", false),
+        };
+        var result = Planner.Plan(Input(issues: issues));
+        Assert.Equal([3], result.Select(l => l.Issue));
+    }
+
+    [Fact]
     public void A_launch_older_than_15_minutes_is_eligible_again()
     {
         var result = Planner.Plan(Input(issues: [new(3, "c", false)], launched: new() { ["o/r#3"] = 1_000_000_000 - 16 * 60_000 }));

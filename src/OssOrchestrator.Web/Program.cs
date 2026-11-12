@@ -30,6 +30,8 @@ builder.Services.AddSingleton(_ => OrcDb.Create(
 var app = builder.Build();
 
 app.UseHttpsRedirection();
+// Static files (the stylesheet) come before authentication, so the login page can be styled too.
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
