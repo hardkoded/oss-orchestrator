@@ -27,7 +27,9 @@ while (true)
 
         foreach (var cmd in await db.PendingCommandsAsync())
         {
-            var result = Applier.Apply(config, cmd);
+            var result = cmd.Type == "unblock"
+                ? await UnblockAsync(config, cmd, dryRun, log)
+                : Applier.Apply(config, cmd);
             await log.WriteLineAsync($"command {cmd.Type}: {result}");
             await db.SaveConfigAsync(config);
             cmd.Processed = true;
@@ -171,4 +173,23 @@ while (true)
     }
 
     await Task.Delay(TimeSpan.FromSeconds(intervalSec));
+}
+
+// Removes the blocked label on GitHub. Failures become the command's result, so one bad command never stops the pass.
+static async Task<string> UnblockAsync(ConfigDoc config, CommandDoc cmd, bool dryRun, TextWriter log)
+{
+    var repo = config.Repos.FirstOrDefault(r => r.Repo == cmd.Repo);
+    if (repo is null) return $"unknown repo {cmd.Repo}";
+    if (cmd.Issue is not int n) return "missing issue number";
+    if (dryRun) return $"dry run: would unblock {repo.Repo} #{n}";
+    try
+    {
+        await IssueLabels.RemoveBlockedAsync(repo.Folder, n, CancellationToken.None);
+        return $"unblocked {repo.Repo} #{n}";
+    }
+    catch (Exception e)
+    {
+        await log.WriteLineAsync($"{DateTime.Now:T} could not unblock {repo.Repo}#{n}: {e.Message}");
+        return $"could not unblock {repo.Repo} #{n}: {e.Message}";
+    }
 }

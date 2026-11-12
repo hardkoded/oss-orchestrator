@@ -158,7 +158,17 @@
                                 else { <span class="muted">free</span> }
                             </td>
                             <td>
-                                @if (!i.Ignored && !i.Assigned && !i.InProgress && !i.Blocked)
+                                @if (i.Blocked)
+                                {
+                                    <form method="post" asp-page-handler="Command" class="inline">
+                                        <input type="hidden" name="type" value="unblock" />
+                                        <input type="hidden" name="repo" value="@tabIssues.Repo" />
+                                        <input type="hidden" name="issue" value="@i.Number" />
+                                        <input type="hidden" name="tab" value="@Model.Tab" />
+                                        <button type="submit">Unblock</button>
+                                    </form>
+                                }
+                                else if (!i.Ignored && !i.Assigned && !i.InProgress)
                                 {
                                     <form method="post" asp-page-handler="Command" class="inline">
                                         <input type="hidden" name="type" value="ignore" />

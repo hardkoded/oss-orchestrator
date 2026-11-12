@@ -13,16 +13,20 @@ public static class IssueLabels
 
     /// <summary>Adds the in-progress label. Labels are used instead of assignees so no one is shown as the owner.</summary>
     public static Task MarkInProgressAsync(string folder, int issue, CancellationToken ct) =>
-        EditAsync(folder, issue, "--add-label", ct);
+        EditAsync(folder, issue, "--add-label", InProgress, ct);
 
     /// <summary>Removes the in-progress label once the issue's PR is merged or closed.</summary>
     public static Task RemoveInProgressAsync(string folder, int issue, CancellationToken ct) =>
-        EditAsync(folder, issue, "--remove-label", ct);
+        EditAsync(folder, issue, "--remove-label", InProgress, ct);
 
-    private static async Task EditAsync(string folder, int issue, string flag, CancellationToken ct)
+    /// <summary>Removes the blocked label, set by a dashboard Unblock, so the issue can be taken again.</summary>
+    public static Task RemoveBlockedAsync(string folder, int issue, CancellationToken ct) =>
+        EditAsync(folder, issue, "--remove-label", Blocked, ct);
+
+    private static async Task EditAsync(string folder, int issue, string flag, string label, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("gh") { WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "issue", "edit", issue.ToString(), flag, InProgress }) psi.ArgumentList.Add(a);
+        foreach (var a in new[] { "issue", "edit", issue.ToString(), flag, label }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("gh did not start");
         var stderr = await p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
