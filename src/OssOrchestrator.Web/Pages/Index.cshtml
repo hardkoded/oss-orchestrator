@@ -14,8 +14,16 @@
     };
     string PrStatusClass(string s) => s switch
     {
-        "ready" => "on",
-        "failed" or "conflicted" => "paused",
+        "ready" or "merged" => "ok",
+        "building" => "info",
+        "failed" or "conflicted" => "bad",
+        _ => "",
+    };
+    string SessionClass(string s) => s switch
+    {
+        "working" => "info",
+        "blocked" => "warn",
+        "done" => "ok",
         _ => "",
     };
 }
@@ -93,7 +101,7 @@
                         <td>@s.Repo</td>
                         <td class="num">#@s.Issue</td>
                         <td class="title">@s.Title</td>
-                        <td><span class="pill @(s.Status == "blocked" ? "paused" : s.Status == "working" ? "on" : "")">@StatusText(s.Status)</span></td>
+                        <td><span class="pill @SessionClass(s.Status)">@StatusText(s.Status)</span></td>
                         <td>
                             @if (s.PrUrl is not null)
                             {

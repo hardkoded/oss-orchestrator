@@ -33,6 +33,10 @@ form.inline { display: inline-flex; margin: 0; }
 .pill { display:inline-flex; align-items:center; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
 .pill.on { color: var(--ok); border-color: var(--ok); }
 .pill.paused { color: var(--warn); border-color: var(--warn); }
+.pill.ok { color: var(--ok); border-color: var(--ok); }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
+.pill.bad { color: var(--bad); border-color: var(--bad); }
+.pill.info { color: var(--accent); border-color: var(--accent); }
 .row { display:flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .toolbar { display:flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .toolbar label { color: var(--muted); font-size: 13px; display:flex; gap: 8px; align-items:center; }
