@@ -44,6 +44,7 @@ while (true)
         var prs = new Dictionary<string, IReadOnlyList<PrInfo>>();
         var finished = new Dictionary<string, IReadOnlyDictionary<int, PrInfo>>();
         var inProgress = new Dictionary<string, IReadOnlySet<int>>();
+        var needsAnswer = new Dictionary<string, IReadOnlySet<int>>();
         var errors = new Dictionary<string, string>();
         foreach (var repo in config.Repos)
         {
@@ -55,6 +56,8 @@ while (true)
             try { finished[repo.Repo] = await github.FinishedPrsByIssueAsync(repo.Folder, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
             try { inProgress[repo.Repo] = await github.InProgressIssuesAsync(repo.Folder, CancellationToken.None); }
+            catch (Exception e) { errors[repo.Repo] = e.Message; }
+            try { needsAnswer[repo.Repo] = await github.IssuesWithLabelAsync(repo.Folder, IssueLabels.NeedsAnswer, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
         }
 
@@ -107,7 +110,9 @@ while (true)
                     cloudChanged = true;
                     continue;
                 }
-                shown.Add(new SessionInfo(repo.Repo, number, "cloud", null, doc.Id, doc.Url));
+                // A cloud worker has no terminal to read, so it reports a question through the needs-answer label.
+                var waiting = needsAnswer.GetValueOrDefault(repo.Repo)?.Contains(number) ?? false;
+                shown.Add(new SessionInfo(repo.Repo, number, waiting ? "blocked" : "cloud", null, doc.Id, doc.Url));
             }
         }
         if (cloudChanged) await db.SaveConfigAsync(config);

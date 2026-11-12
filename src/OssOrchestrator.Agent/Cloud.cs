@@ -20,11 +20,29 @@ public static partial class CloudSessions
     [GeneratedRegex(@"View: (https://claude\.ai/code/(session_[A-Za-z0-9]+))")]
     private static partial Regex ViewLine();
 
+    /// <summary>
+    /// The permissions every worker needs. Repo-level .claude/settings.json did not reach cloud sessions, so they are
+    /// passed to each launch with --settings.
+    /// </summary>
+    private const string WorkerSettingsJson = """
+        {"permissions":{"allow":["RemoteTrigger","mcp__claude-code-remote__add_repo"]}}
+        """;
+
+    /// <summary>Writes the worker settings file and returns its path. The path has no spaces, so it is safe on the command line.</summary>
+    private static string WriteWorkerSettings()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "oss-orchestrator");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "worker-settings.json");
+        File.WriteAllText(path, WorkerSettingsJson.Trim());
+        return path;
+    }
+
     public static async Task<CloudDoc> LaunchAsync(string repo, string folder, int issue, string task, CancellationToken ct)
     {
         var name = $"orc-{issue}-{DateTime.UtcNow:HHmmss}";
         var psi = new ProcessStartInfo("hc") { WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "run", "--name", name, "claude", "--cloud", task }) psi.ArgumentList.Add(a);
+        foreach (var a in new[] { "run", "--name", name, "claude", "--cloud", "--settings", WriteWorkerSettings(), task }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("hc did not start");
         var stdout = await p.StandardOutput.ReadToEndAsync(ct);
         var stderr = await p.StandardError.ReadToEndAsync(ct);

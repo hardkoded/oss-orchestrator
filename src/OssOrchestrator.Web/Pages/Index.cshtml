@@ -120,7 +120,7 @@
                         </td>
                         <td><span class="pill @PrStatusClass(s.PrStatus)">@s.PrStatus</span></td>
                         <td>
-                            @if (s.PrConflict)
+                            @if (s.PrConflict && s.CloudSessionUrl is null)
                             {
                                 <form method="post" asp-page-handler="Command" class="inline">
                                     <input type="hidden" name="type" value="restore" />

@@ -8,6 +8,9 @@ public static class IssueLabels
     /// <summary>Set when a session starts on the issue, so it is not offered again.</summary>
     public const string InProgress = "in-progress";
 
+    /// <summary>Set by a cloud worker when it has asked a question on the issue. The worker removes it once it has the answer.</summary>
+    public const string NeedsAnswer = "needs-answer";
+
     /// <summary>Set by a person. The issue is shown on the dashboard but the orchestrator never takes it.</summary>
     public const string Blocked = "blocked";
 

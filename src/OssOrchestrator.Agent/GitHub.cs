@@ -96,6 +96,15 @@ public sealed class GitHub
         return doc.RootElement.EnumerateArray().Select(e => e.GetProperty("number").GetInt32()).ToHashSet();
     }
 
+    /// <summary>Open issues carrying the given label. A label that does not exist yet has no issues, so this does not fail for that reason.</summary>
+    public async Task<IReadOnlySet<int>> IssuesWithLabelAsync(string folder, string label, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "issue", "list", "--state", "open", "--label", label,
+            "--limit", "300", "--json", "number");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.EnumerateArray().Select(e => e.GetProperty("number").GetInt32()).ToHashSet();
+    }
+
     /// <summary>The newest merged or closed PR per issue. Used to free the in-progress label and to show finished work.</summary>
     public async Task<IReadOnlyDictionary<int, PrInfo>> FinishedPrsByIssueAsync(string folder, CancellationToken ct)
     {
