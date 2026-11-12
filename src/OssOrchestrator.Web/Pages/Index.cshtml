@@ -13,28 +13,48 @@
     <meta http-equiv="refresh" content="15" />
     <title>@ViewData["Title"]</title>
     <style>
-        :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --warn:#b45309; --bad:#b91c1c; }
-        @@media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#171a21; --fg:#e6e8ee; --muted:#9aa3b2; --line:#262b36; --accent:#60a5fa; --warn:#fbbf24; --bad:#f87171; } }
-        body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif; }
-        main { max-width: 980px; margin: 0 auto; padding: 16px; }
-        h1 { font-size: 20px; margin: 4px 0 12px; }
-        h2 { font-size: 15px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-        .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-        .kpi b { display:block; font-size: 24px; }
-        .kpi span { color: var(--muted); font-size: 13px; }
+        :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; }
+        @@media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#171a21; --fg:#e6e8ee; --muted:#9aa3b2; --line:#262b36; --accent:#60a5fa; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; } }
+        * { box-sizing: border-box; }
+        body { margin:0; background:var(--bg); color:var(--fg); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+        main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+        h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
+        h2 { font-size: 12px; font-weight: 600; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+        .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+        .kpi { padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+        .kpi b { display:block; font-size: 22px; font-weight: 600; line-height: 1.2; }
+        .kpi span { color: var(--muted); font-size: 12px; }
         table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
-        th { color: var(--muted); font-weight: 600; font-size: 12px; }
-        button, .btn { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+        th, td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+        th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: none; padding-top: 0; }
+        td.num { font-variant-numeric: tabular-nums; }
+        .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+        button, select, input[type=number], input[type=text] {
+            font: inherit; font-size: 13px; height: 30px; line-height: 1; padding: 0 12px;
+            border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+        }
+        button { cursor: pointer; white-space: nowrap; }
+        button:hover { border-color: var(--accent); }
         button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-        form.inline { display: inline; }
-        input[type=number] { width: 70px; font: inherit; padding: 4px 6px; }
-        .banner { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; border: 1px solid var(--warn); color: var(--warn); }
+        input[type=number] { width: 84px; }
+        select { min-width: 260px; }
+        form.inline { display: inline-flex; margin: 0; }
+        .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; border: 1px solid var(--warn); color: var(--warn); }
         .banner.bad { border-color: var(--bad); color: var(--bad); }
         .muted { color: var(--muted); font-size: 13px; }
-        .pill { display:inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--line); }
+        .pill { display:inline-flex; align-items:center; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+        .pill.on { color: var(--ok); border-color: var(--ok); }
+        .pill.paused { color: var(--warn); border-color: var(--warn); }
         .row { display:flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .toolbar { display:flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+        .toolbar label { color: var(--muted); font-size: 13px; display:flex; gap: 8px; align-items:center; }
+        @@media (max-width: 640px) {
+            .kpis { grid-template-columns: repeat(2, 1fr); }
+            .hide-sm { display: none; }
+            th, td { white-space: normal; }
+            select { min-width: 0; width: 100%; }
+        }
     </style>
 </head>
 <body>
@@ -69,7 +89,7 @@
         {
             <p class="muted">Last pass: @state.At.ToLocalTime().ToString("HH:mm:ss")</p>
         }
-        <div class="row">
+        <div class="toolbar">
             <form method="post" asp-page-handler="Command" class="inline">
                 <input type="hidden" name="type" value="pause_all" /><button type="submit">Pause all</button>
             </form>
@@ -78,7 +98,9 @@
             </form>
             <form method="post" asp-page-handler="Command" class="inline">
                 <input type="hidden" name="type" value="limit" />
-                <label>Limit <input type="number" name="value" min="1" max="20" value="@(config?.MaxTotal ?? 6)" /></label>
+                <label>Limit
+                    <input type="number" name="value" min="1" max="20" value="@(config?.MaxTotal ?? 6)" />
+                </label>
                 <button type="submit">Set limit</button>
             </form>
         </div>
@@ -96,14 +118,14 @@
                     var cfgRepo = config?.Repos.FirstOrDefault(x => x.Repo == r.Repo);
                     <tr>
                         <td>@r.Repo</td>
-                        <td><span class="pill">@(r.Auto ? "on" : "off")</span></td>
-                        <td>@r.OpenIssues</td>
+                        <td><span class="pill @(r.Auto ? "on" : "")">@(r.Auto ? "auto on" : "auto off")</span></td>
+                        <td class="num">@r.OpenIssues</td>
                         <td>
                             @if (!string.IsNullOrEmpty(r.Error)) { <span class="muted">@r.Error</span> }
-                            else if (r.Paused) { <span class="pill">paused</span> }
-                            else { <span class="muted">active</span> }
+                            else if (r.Paused) { <span class="pill paused">paused</span> }
+                            else { <span class="pill on">active</span> }
                         </td>
-                        <td class="row">
+                        <td><div class="controls">
                             <form method="post" asp-page-handler="Command" class="inline">
                                 <input type="hidden" name="repo" value="@r.Repo" />
                                 <input type="hidden" name="type" value="@(r.Paused ? "resume" : "pause")" />
@@ -115,7 +137,7 @@
                                 <input type="hidden" name="value" value="@(r.Auto ? "false" : "true")" />
                                 <button type="submit">Auto @(r.Auto ? "off" : "on")</button>
                             </form>
-                        </td>
+                        </div></td>
                     </tr>
                     @if (cfgRepo is not null && cfgRepo.Ignored.Count > 0)
                     {
