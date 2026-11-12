@@ -56,7 +56,21 @@ while (true)
         }
 
         var sessions = await herdr.ListSessionsAsync(CancellationToken.None);
-        var running = sessions.Count;
+        // A session whose issue is closed takes no slot and is not shown. Only sessions missing from the open-issue list are checked on GitHub.
+        var shown = new List<SessionInfo>();
+        foreach (var sess in sessions)
+        {
+            var listed = issues.GetValueOrDefault(sess.Repo)?.Any(i => i.Number == sess.Issue) ?? false;
+            var folder = config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Folder;
+            var open = true;
+            if (!listed && folder is not null)
+            {
+                try { open = await github.IssueIsOpenAsync(folder, sess.Issue, CancellationToken.None); }
+                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read state of {sess.Repo}#{sess.Issue}: {e.Message}"); }
+            }
+            if (open) shown.Add(sess);
+        }
+        var running = shown.Count;
 
         // Free the in-progress label when the issue's PR is merged or closed. Only when this pass read both the open
         // and the finished PRs of the repo, so a failed lookup never clears a label by mistake, and never while a session
@@ -117,21 +131,6 @@ while (true)
                     await log.WriteLineAsync($"{DateTime.Now:T} launched #{launch.Issue} but could not label it: {e.Message}");
                 }
             }
-        }
-
-        // A session whose issue is closed is not shown. Only sessions missing from the open-issue list are checked on GitHub.
-        var shown = new List<SessionInfo>();
-        foreach (var sess in sessions)
-        {
-            var listed = issues.GetValueOrDefault(sess.Repo)?.Any(i => i.Number == sess.Issue) ?? false;
-            var folder = config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Folder;
-            var open = true;
-            if (!listed && folder is not null)
-            {
-                try { open = await github.IssueIsOpenAsync(folder, sess.Issue, CancellationToken.None); }
-                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read state of {sess.Repo}#{sess.Issue}: {e.Message}"); }
-            }
-            if (open) shown.Add(sess);
         }
 
         await db.PutStateAsync(new StateDoc
