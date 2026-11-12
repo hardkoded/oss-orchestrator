@@ -1,0 +1,186 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "OSS Orchestrator";
+    var state = Model.State;
+    var config = Model.Config;
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="15" />
+    <title>@ViewData["Title"]</title>
+    <style>
+        :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --warn:#b45309; --bad:#b91c1c; }
+        @@media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#171a21; --fg:#e6e8ee; --muted:#9aa3b2; --line:#262b36; --accent:#60a5fa; --warn:#fbbf24; --bad:#f87171; } }
+        body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif; }
+        main { max-width: 980px; margin: 0 auto; padding: 16px; }
+        h1 { font-size: 20px; margin: 4px 0 12px; }
+        h2 { font-size: 15px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+        .kpi b { display:block; font-size: 24px; }
+        .kpi span { color: var(--muted); font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+        th { color: var(--muted); font-weight: 600; font-size: 12px; }
+        button, .btn { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        form.inline { display: inline; }
+        input[type=number] { width: 70px; font: inherit; padding: 4px 6px; }
+        .banner { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; border: 1px solid var(--warn); color: var(--warn); }
+        .banner.bad { border-color: var(--bad); color: var(--bad); }
+        .muted { color: var(--muted); font-size: 13px; }
+        .pill { display:inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--line); }
+        .row { display:flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>OSS Orchestrator</h1>
+
+    @if (!string.IsNullOrEmpty(Model.Error))
+    {
+        <div class="banner bad">@Model.Error</div>
+    }
+    @if (state is null && string.IsNullOrEmpty(Model.Error))
+    {
+        <div class="banner">No status yet. The agent has not written its first pass.</div>
+    }
+    else if (Model.StateIsStale && state is not null)
+    {
+        <div class="banner">The agent has not reported for more than 10 minutes (last: @state.At.ToLocalTime().ToString("HH:mm:ss")). It may be stopped.</div>
+    }
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <div class="banner">@Model.Message</div>
+    }
+
+    <div class="card">
+        <div class="kpis">
+            <div class="kpi"><b>@(state?.Running ?? 0)</b><span>sessions running</span></div>
+            <div class="kpi"><b>@(state?.MaxTotal ?? config?.MaxTotal ?? 0)</b><span>global limit</span></div>
+            <div class="kpi"><b>@(state?.Planned.Count ?? 0)</b><span>planned to launch</span></div>
+            <div class="kpi"><b>@(state?.DryRun == true ? "dry-run" : "live")</b><span>agent mode</span></div>
+        </div>
+        @if (state is not null)
+        {
+            <p class="muted">Last pass: @state.At.ToLocalTime().ToString("HH:mm:ss")</p>
+        }
+        <div class="row">
+            <form method="post" asp-page-handler="Command" class="inline">
+                <input type="hidden" name="type" value="pause_all" /><button type="submit">Pause all</button>
+            </form>
+            <form method="post" asp-page-handler="Command" class="inline">
+                <input type="hidden" name="type" value="resume_all" /><button type="submit">Resume all</button>
+            </form>
+            <form method="post" asp-page-handler="Command" class="inline">
+                <input type="hidden" name="type" value="limit" />
+                <label>Limit <input type="number" name="value" min="1" max="20" value="@(config?.MaxTotal ?? 6)" /></label>
+                <button type="submit">Set limit</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Repos</h2>
+        <table>
+            <thead><tr><th>Repo</th><th>Auto</th><th>Open issues</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            @if (state is not null)
+            {
+                foreach (var r in state.Repos)
+                {
+                    var cfgRepo = config?.Repos.FirstOrDefault(x => x.Repo == r.Repo);
+                    <tr>
+                        <td>@r.Repo</td>
+                        <td><span class="pill">@(r.Auto ? "on" : "off")</span></td>
+                        <td>@r.OpenIssues</td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(r.Error)) { <span class="muted">@r.Error</span> }
+                            else if (r.Paused) { <span class="pill">paused</span> }
+                            else { <span class="muted">active</span> }
+                        </td>
+                        <td class="row">
+                            <form method="post" asp-page-handler="Command" class="inline">
+                                <input type="hidden" name="repo" value="@r.Repo" />
+                                <input type="hidden" name="type" value="@(r.Paused ? "resume" : "pause")" />
+                                <button type="submit">@(r.Paused ? "Resume" : "Pause")</button>
+                            </form>
+                            <form method="post" asp-page-handler="Command" class="inline">
+                                <input type="hidden" name="repo" value="@r.Repo" />
+                                <input type="hidden" name="type" value="auto" />
+                                <input type="hidden" name="value" value="@(r.Auto ? "false" : "true")" />
+                                <button type="submit">Auto @(r.Auto ? "off" : "on")</button>
+                            </form>
+                        </td>
+                    </tr>
+                    @if (cfgRepo is not null && cfgRepo.Ignored.Count > 0)
+                    {
+                        <tr><td colspan="5" class="muted">Ignored: @string.Join(", ", cfgRepo.Ignored.Select(n => "#" + n))</td></tr>
+                    }
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Ignore or restore an issue</h2>
+        <form method="post" asp-page-handler="Command" class="row">
+            <select name="repo">
+                @if (config is not null)
+                {
+                    foreach (var r in config.Repos)
+                    {
+                        <option value="@r.Repo">@r.Repo</option>
+                    }
+                }
+            </select>
+            <input type="number" name="issue" min="1" placeholder="issue #" required />
+            <button type="submit" name="type" value="ignore">Ignore</button>
+            <button type="submit" name="type" value="restore">Restore</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Planned next</h2>
+        @if (state is not null && state.Planned.Count > 0)
+        {
+            <p>@string.Join(", ", state.Planned)</p>
+        }
+        else
+        {
+            <p class="muted">Nothing planned right now.</p>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Recent commands</h2>
+        @if (Model.Recent.Count == 0)
+        {
+            <p class="muted">None yet.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>When</th><th>Command</th><th>By</th><th>Result</th></tr></thead>
+                <tbody>
+                @foreach (var c in Model.Recent)
+                {
+                    <tr>
+                        <td class="muted">@c.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm")</td>
+                        <td>@c.Type @c.Repo @(c.Issue is null ? "" : "#" + c.Issue)</td>
+                        <td class="muted">@c.By</td>
+                        <td class="muted">@(c.Processed ? c.Result : "waiting for the agent")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</main>
+</body>
+</html>

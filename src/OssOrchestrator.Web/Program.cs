@@ -3,6 +3,7 @@ using Microsoft.Identity.Web.UI;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Identity.Web;
 using OssOrchestrator.Web;
+using OssOrchestrator.Web.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +23,10 @@ builder.Services.AddAuthorizationBuilder()
 builder.Services.AddSingleton<IAuthorizationHandler, AllowedUserHandler>();
 builder.Services.AddRazorPages().AddMicrosoftIdentityUI();
 
+// The database is the source of truth. Access uses this app's identity (no keys stored in the app).
+builder.Services.AddSingleton(_ => OrcDb.Create(
+    builder.Configuration["Cosmos:Endpoint"] ?? throw new InvalidOperationException("Set Cosmos:Endpoint.")));
+
 var app = builder.Build();
 
 app.UseHttpsRedirection();
@@ -30,8 +35,6 @@ app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.MapRazorPages();
-
-app.MapGet("/", () => Results.Text("OSS Orchestrator dashboard (scaffold)", "text/plain"));
 
 app.Run();
 
