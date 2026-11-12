@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\OssOrchestrator.Web\OssOrchestrator.Web.csproj" />
+    <ProjectReference Include="..\..\src\OssOrchestrator.Agent\OssOrchestrator.Agent.csproj" />
   </ItemGroup>
 
 </Project>
