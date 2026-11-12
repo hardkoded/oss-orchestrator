@@ -4,7 +4,8 @@ using System.Text.Json;
 namespace OssOrchestrator.Agent;
 
 /// <summary>An open "orc #N" tab: its repo (the space name), issue, and the status of its worker.</summary>
-public sealed record SessionInfo(string Repo, int Issue, string Status, string? Terminal = null);
+public sealed record SessionInfo(string Repo, int Issue, string Status, string? Terminal = null,
+    string? CloudSessionId = null, string? CloudSessionUrl = null);
 
 /// <summary>Starts Claude workers in Herdr: one tab per issue inside the repo's space. DryRun only logs.</summary>
 public sealed class Herdr(bool dryRun, TextWriter log)

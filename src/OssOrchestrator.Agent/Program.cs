@@ -85,6 +85,33 @@ while (true)
             }
             shown.Add(listedSession);
         }
+        // Cloud sessions stay listed while their issue is open and has no finished PR. They take a slot like a local one.
+        var cloudChanged = false;
+        foreach (var repo in config.Repos)
+        {
+            if (!issues.TryGetValue(repo.Repo, out var repoIssues)) continue;
+            var listed = repoIssues.Select(i => i.Number).ToHashSet();
+            var done = finished.GetValueOrDefault(repo.Repo);
+            foreach (var (issueKey, doc) in repo.Cloud.ToList())
+            {
+                var number = int.Parse(issueKey);
+                var open = listed.Contains(number);
+                if (!open)
+                {
+                    try { open = await github.IssueIsOpenAsync(repo.Folder, number, CancellationToken.None); }
+                    catch (Exception) { open = true; }   // when GitHub cannot say, keep the session listed
+                }
+                if (!open || (done?.ContainsKey(number) ?? false))
+                {
+                    repo.Cloud.Remove(issueKey);
+                    cloudChanged = true;
+                    continue;
+                }
+                shown.Add(new SessionInfo(repo.Repo, number, "cloud", null, doc.Id, doc.Url));
+            }
+        }
+        if (cloudChanged) await db.SaveConfigAsync(config);
+
         var running = shown.Count;
 
         // Free the in-progress label when the issue's PR is merged or closed. Only when this pass read both the open
@@ -130,7 +157,31 @@ while (true)
         {
             var repo = config.Repos.First(r => r.Repo == launch.Repo);
             var task = Brief.For(repo.Repo, launch.Issue);
-            await herdr.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
+            if (config.Mode == "cloud")
+            {
+                if (dryRun)
+                {
+                    await log.WriteLineAsync($"{DateTime.Now:T} [dry-run] would launch {repo.Repo}#{launch.Issue} in the cloud");
+                }
+                else
+                {
+                    try
+                    {
+                        var cloud = await CloudSessions.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
+                        repo.Cloud[launch.Issue.ToString()] = cloud;
+                        await log.WriteLineAsync($"{DateTime.Now:T} started cloud session for {repo.Repo}#{launch.Issue}: {cloud.Url}");
+                    }
+                    catch (Exception e)
+                    {
+                        await log.WriteLineAsync($"{DateTime.Now:T} could not start a cloud session for {repo.Repo}#{launch.Issue}: {e.Message}");
+                        continue;
+                    }
+                }
+            }
+            else
+            {
+                await herdr.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
+            }
             if (!dryRun)
             {
                 // Record the launch first: the session is already running, so the issue must not be planned again
@@ -181,6 +232,8 @@ while (true)
                     PrConflict = pr?.Mergeable == "CONFLICTING",
                     PrDraft = pr?.IsDraft ?? false,
                     PrStatus = pr?.Status ?? "pending",
+                    CloudSessionId = sess.CloudSessionId,
+                    CloudSessionUrl = sess.CloudSessionUrl,
                 };
             }).ToList(),
             Issues = config.Repos.Select(r => new RepoIssues
@@ -225,6 +278,7 @@ static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bo
     }
     try
     {
+        repo.Cloud.Remove(n.ToString());   // a cloud session is no longer tracked; it keeps running in claude.ai
         await herdr.CloseSessionAsync(repo.Repo, n, CancellationToken.None);
         // The session is released, so the issue is no longer in progress.
         try { await IssueLabels.RemoveInProgressAsync(repo.Folder, n, CancellationToken.None); }

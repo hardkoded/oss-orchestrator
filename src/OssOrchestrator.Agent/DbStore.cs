@@ -16,6 +16,8 @@ public sealed class RepoDoc
     public bool Auto { get; set; }
     public List<int> Ignored { get; set; } = [];
     public Dictionary<string, long> Launched { get; set; } = [];
+    /// <summary>Cloud sessions by issue number, while their issue is open and has no finished PR.</summary>
+    public Dictionary<string, CloudDoc> Cloud { get; set; } = [];
 }
 
 public sealed class ConfigDoc

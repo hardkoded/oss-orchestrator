@@ -10,6 +10,7 @@
         "blocked" => "needs your answer",
         "done" => "finished",
         "idle" => "idle",
+        "cloud" => "cloud session",
         _ => "no status",
     };
     string PrStatusClass(string s) => s switch
@@ -21,7 +22,7 @@
     };
     string SessionClass(string s) => s switch
     {
-        "working" => "info",
+        "working" or "cloud" => "info",
         "blocked" => "warn",
         "done" => "ok",
         _ => "",
