@@ -1,7 +1,7 @@
 using OssOrchestrator.Agent;
 
-// Source of truth: the Cosmos database (orc/config, orc/commands, orc/state). This loop reads config and
-// pending commands from it, plans, launches, and writes the state back.
+// Source of truth: the Cosmos database (orc/config, orc/commands, orc/state). Each pass reads config and
+// pending commands, looks at Herdr sessions and GitHub, plans, launches, and writes the state back.
 // Dry run is the default: it plans and publishes, but does not start sessions. Set ORC_DRY_RUN=false to launch.
 var dryRun = Environment.GetEnvironmentVariable("ORC_DRY_RUN") != "false";
 var endpoint = Environment.GetEnvironmentVariable("ORC_COSMOS_ENDPOINT")
@@ -36,14 +36,19 @@ while (true)
         }
 
         var issues = new Dictionary<string, IReadOnlyList<IssueInfo>>();
+        var prs = new Dictionary<string, IReadOnlyList<PrInfo>>();
         var errors = new Dictionary<string, string>();
         foreach (var repo in config.Repos)
         {
-            try { issues[repo.Repo] = await github.OpenIssuesAsync(new RepoSettings(repo.Repo, repo.Folder, repo.Paused, repo.Auto), CancellationToken.None); }
+            var settings = new RepoSettings(repo.Repo, repo.Folder, repo.Paused, repo.Auto);
+            try { issues[repo.Repo] = await github.OpenIssuesAsync(settings, CancellationToken.None); }
+            catch (Exception e) { errors[repo.Repo] = e.Message; }
+            try { prs[repo.Repo] = await github.OpenPrsAsync(repo.Folder, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
         }
 
-        var running = await herdr.RunningCountAsync(CancellationToken.None);
+        var sessions = await herdr.ListSessionsAsync(CancellationToken.None);
+        var running = sessions.Count;
         var plan = Planner.Plan(new PlanInput(
             MaxTotal: config.MaxTotal,
             Running: running,
@@ -82,6 +87,31 @@ while (true)
                 Auto = r.Auto,
                 OpenIssues = issues.TryGetValue(r.Repo, out var list) ? list.Count : 0,
                 Error = errors.GetValueOrDefault(r.Repo),
+            }).ToList(),
+            Sessions = sessions.Select(sess =>
+            {
+                var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
+                return new SessionStatus
+                {
+                    Repo = sess.Repo,
+                    Issue = sess.Issue,
+                    Status = sess.Status,
+                    PrNumber = pr?.Number,
+                    PrUrl = pr?.Url,
+                    PrConflict = pr?.Mergeable == "CONFLICTING",
+                    PrDraft = pr?.IsDraft ?? false,
+                };
+            }).ToList(),
+            Issues = config.Repos.Select(r => new RepoIssues
+            {
+                Repo = r.Repo,
+                Items = (issues.GetValueOrDefault(r.Repo) ?? []).Select(i => new IssueStatus
+                {
+                    Number = i.Number,
+                    Title = i.Title,
+                    Assigned = i.Assigned,
+                    Ignored = r.Ignored.Contains(i.Number),
+                }).ToList(),
             }).ToList(),
         });
         await log.WriteLineAsync($"{DateTime.Now:T} pass done: running={running} planned={plan.Count} errors={errors.Count}");

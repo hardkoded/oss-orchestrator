@@ -45,6 +45,8 @@ public sealed class StateDoc
     public int MaxTotal { get; set; }
     public List<string> Planned { get; set; } = [];
     public List<RepoStatus> Repos { get; set; } = [];
+    public List<SessionStatus> Sessions { get; set; } = [];
+    public List<RepoIssues> Issues { get; set; } = [];
 }
 
 public sealed class RepoStatus
@@ -54,6 +56,32 @@ public sealed class RepoStatus
     public bool Auto { get; set; }
     public int OpenIssues { get; set; }
     public string? Error { get; set; }
+}
+
+/// <summary>A worker session open in Herdr, with the PR its issue opened (if any).</summary>
+public sealed class SessionStatus
+{
+    public string Repo { get; set; } = "";
+    public int Issue { get; set; }
+    public string Status { get; set; } = "";
+    public int? PrNumber { get; set; }
+    public string? PrUrl { get; set; }
+    public bool PrConflict { get; set; }
+    public bool PrDraft { get; set; }
+}
+
+public sealed class RepoIssues
+{
+    public string Repo { get; set; } = "";
+    public List<IssueStatus> Items { get; set; } = [];
+}
+
+public sealed class IssueStatus
+{
+    public int Number { get; set; }
+    public string Title { get; set; } = "";
+    public bool Assigned { get; set; }
+    public bool Ignored { get; set; }
 }
 
 public sealed class DbStore(Container config, Container commands, Container state)

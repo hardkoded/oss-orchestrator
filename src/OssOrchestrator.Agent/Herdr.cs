@@ -3,25 +3,40 @@ using System.Text.Json;
 
 namespace OssOrchestrator.Agent;
 
+/// <summary>An open "orc #N" tab: its repo (the space name), issue, and the status of its worker.</summary>
+public sealed record SessionInfo(string Repo, int Issue, string Status);
+
 /// <summary>Starts Claude workers in Herdr: one tab per issue inside the repo's space. DryRun only logs.</summary>
 public sealed class Herdr(bool dryRun, TextWriter log)
 {
     private const string HerdrApp = @"C:\Users\Mabl-Mobl\AppData\Local\Programs\herdr-app\herdr-app.exe";
+    private const string Prefix = "orc #";
 
-    /// <summary>Open "orc #N" tabs across all spaces: what the global limit counts.</summary>
-    public async Task<int> RunningCountAsync(CancellationToken ct)
+    /// <summary>Every open "orc #N" tab. The global limit counts these.</summary>
+    public async Task<List<SessionInfo>> ListSessionsAsync(CancellationToken ct)
     {
         using var listing = JsonDocument.Parse(await RunAsync(ct, "ls"));
-        var count = 0;
+        var result = new List<SessionInfo>();
         foreach (var space in listing.RootElement.GetProperty("spaces").EnumerateArray())
+        {
+            var repo = space.GetProperty("name").GetString() ?? "";
             foreach (var tab in space.GetProperty("tabs").EnumerateArray())
-                if ((tab.GetProperty("name").GetString() ?? "").StartsWith("orc #", StringComparison.Ordinal)) count++;
-        return count;
+            {
+                var name = tab.GetProperty("name").GetString() ?? "";
+                if (!name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
+                if (!int.TryParse(name[Prefix.Length..], out var issue)) continue;
+                var status = tab.GetProperty("terminals").EnumerateArray()
+                    .Select(t => t.TryGetProperty("status", out var s) ? s.GetString() : null)
+                    .FirstOrDefault(s => s is not null) ?? "unknown";
+                result.Add(new SessionInfo(repo, issue, status));
+            }
+        }
+        return result;
     }
 
     public async Task LaunchAsync(string repo, string folder, int issue, string task, CancellationToken ct)
     {
-        var tab = $"orc #{issue}";
+        var tab = $"{Prefix}{issue}";
         var argv = $"[\"claude\",\"-n\",\"issue-{issue}\"]";
         if (dryRun)
         {
