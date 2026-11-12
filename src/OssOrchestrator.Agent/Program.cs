@@ -39,7 +39,7 @@ while (true)
 
         var issues = new Dictionary<string, IReadOnlyList<IssueInfo>>();
         var prs = new Dictionary<string, IReadOnlyList<PrInfo>>();
-        var finished = new Dictionary<string, IReadOnlySet<int>>();
+        var finished = new Dictionary<string, IReadOnlyDictionary<int, PrInfo>>();
         var inProgress = new Dictionary<string, IReadOnlySet<int>>();
         var errors = new Dictionary<string, string>();
         foreach (var repo in config.Repos)
@@ -49,7 +49,7 @@ while (true)
             catch (Exception e) { errors[repo.Repo] = e.Message; }
             try { prs[repo.Repo] = await github.OpenPrsAsync(repo.Folder, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
-            try { finished[repo.Repo] = await github.FinishedPrIssuesAsync(repo.Folder, CancellationToken.None); }
+            try { finished[repo.Repo] = await github.FinishedPrsByIssueAsync(repo.Folder, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
             try { inProgress[repo.Repo] = await github.InProgressIssuesAsync(repo.Folder, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
@@ -68,7 +68,7 @@ while (true)
             var openPrIssues = openPrs.Where(p => p.Issue is not null).Select(p => p.Issue!.Value).ToHashSet();
             foreach (var number in labelled)
             {
-                if (openPrIssues.Contains(number) || !doneIssues.Contains(number)) continue;
+                if (openPrIssues.Contains(number) || !doneIssues.ContainsKey(number)) continue;
                 if (sessions.Any(s => s.Repo == repo.Repo && s.Issue == number)) continue;
                 if (dryRun)
                 {
@@ -136,7 +136,9 @@ while (true)
             }).ToList(),
             Sessions = sessions.Select(sess =>
             {
-                var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
+                // The open PR for the issue, or else its newest merged or closed PR, so finished work still shows its PR.
+                var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue)
+                    ?? finished.GetValueOrDefault(sess.Repo)?.GetValueOrDefault(sess.Issue);
                 var title = issues.GetValueOrDefault(sess.Repo)?.FirstOrDefault(i => i.Number == sess.Issue)?.Title ?? "";
                 return new SessionStatus
                 {

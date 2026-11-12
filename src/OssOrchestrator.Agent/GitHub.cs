@@ -96,18 +96,27 @@ public sealed class GitHub
         return doc.RootElement.EnumerateArray().Select(e => e.GetProperty("number").GetInt32()).ToHashSet();
     }
 
-    /// <summary>Issue numbers that have a merged or closed PR. Used to free the in-progress label.</summary>
-    public async Task<IReadOnlySet<int>> FinishedPrIssuesAsync(string folder, CancellationToken ct)
+    /// <summary>The newest merged or closed PR per issue. Used to free the in-progress label and to show finished work.</summary>
+    public async Task<IReadOnlyDictionary<int, PrInfo>> FinishedPrsByIssueAsync(string folder, CancellationToken ct)
     {
-        var json = await RunAsync(folder, ct, "pr", "list", "--state", "all", "--limit", "100", "--json", "headRefName,state");
+        var json = await RunAsync(folder, ct, "pr", "list", "--state", "all", "--limit", "100",
+            "--json", "number,url,headRefName,state");
         using var doc = JsonDocument.Parse(json);
-        var result = new HashSet<int>();
+        var result = new Dictionary<int, PrInfo>();
         foreach (var e in doc.RootElement.EnumerateArray())
         {
             var state = e.GetProperty("state").GetString();
             if (state is not ("MERGED" or "CLOSED")) continue;
             var issue = IssueFromBranch(e.GetProperty("headRefName").GetString() ?? "");
-            if (issue is not null) result.Add(issue.Value);
+            // gh lists the newest PR first, so the first one seen per issue is the one to show.
+            if (issue is null || result.ContainsKey(issue.Value)) continue;
+            result[issue.Value] = new PrInfo(
+                e.GetProperty("number").GetInt32(),
+                e.GetProperty("url").GetString() ?? "",
+                issue,
+                false,
+                "UNKNOWN",
+                state == "MERGED" ? "merged" : "closed");
         }
         return result;
     }
