@@ -42,6 +42,15 @@ public class PrStatusTests
         Assert.Equal("failed", PrStatus.From("MERGEABLE", rollup));
     }
 
+    [Theory]
+    [InlineData("fix/1531-short-name", 1531)]
+    [InlineData("feature/2-x", 2)]
+    [InlineData("main", null)]
+    public void Issue_number_comes_from_the_branch_name(string branch, int? expected)
+    {
+        Assert.Equal(expected, GitHub.IssueFromBranch(branch));
+    }
+
     [Fact]
     public void Legacy_status_contexts_are_read_by_state()
     {

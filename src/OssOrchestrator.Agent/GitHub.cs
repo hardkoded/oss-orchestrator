@@ -75,17 +75,48 @@ public sealed class GitHub
             .Select(e =>
             {
                 var branch = e.GetProperty("headRefName").GetString() ?? "";
-                var digits = new string(branch.SkipWhile(c => !char.IsDigit(c)).TakeWhile(char.IsDigit).ToArray());
                 var mergeable = e.GetProperty("mergeable").GetString() ?? "UNKNOWN";
                 return new PrInfo(
                     e.GetProperty("number").GetInt32(),
                     e.GetProperty("url").GetString() ?? "",
-                    int.TryParse(digits, out var issue) ? issue : null,
+                    IssueFromBranch(branch),
                     e.GetProperty("isDraft").GetBoolean(),
                     mergeable,
                     PrStatus.From(mergeable, e.GetProperty("statusCheckRollup").Clone()));
             })
             .ToList();
+    }
+
+    /// <summary>Every open issue that carries the in-progress label, not limited to the dashboard's list.</summary>
+    public async Task<IReadOnlySet<int>> InProgressIssuesAsync(string folder, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "issue", "list", "--state", "open", "--label", IssueLabels.InProgress,
+            "--limit", "300", "--json", "number");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.EnumerateArray().Select(e => e.GetProperty("number").GetInt32()).ToHashSet();
+    }
+
+    /// <summary>Issue numbers that have a merged or closed PR. Used to free the in-progress label.</summary>
+    public async Task<IReadOnlySet<int>> FinishedPrIssuesAsync(string folder, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "pr", "list", "--state", "all", "--limit", "100", "--json", "headRefName,state");
+        using var doc = JsonDocument.Parse(json);
+        var result = new HashSet<int>();
+        foreach (var e in doc.RootElement.EnumerateArray())
+        {
+            var state = e.GetProperty("state").GetString();
+            if (state is not ("MERGED" or "CLOSED")) continue;
+            var issue = IssueFromBranch(e.GetProperty("headRefName").GetString() ?? "");
+            if (issue is not null) result.Add(issue.Value);
+        }
+        return result;
+    }
+
+    /// <summary>The issue number in a branch name such as fix/1531-short-name, or null.</summary>
+    public static int? IssueFromBranch(string branch)
+    {
+        var digits = new string(branch.SkipWhile(c => !char.IsDigit(c)).TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var issue) ? issue : null;
     }
 
     private static async Task<string> RunAsync(string cwd, CancellationToken ct, params string[] args)

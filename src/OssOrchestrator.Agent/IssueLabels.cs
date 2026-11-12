@@ -12,13 +12,20 @@ public static class IssueLabels
     public const string Blocked = "blocked";
 
     /// <summary>Adds the in-progress label. Labels are used instead of assignees so no one is shown as the owner.</summary>
-    public static async Task MarkInProgressAsync(string folder, int issue, CancellationToken ct)
+    public static Task MarkInProgressAsync(string folder, int issue, CancellationToken ct) =>
+        EditAsync(folder, issue, "--add-label", ct);
+
+    /// <summary>Removes the in-progress label once the issue's PR is merged or closed.</summary>
+    public static Task RemoveInProgressAsync(string folder, int issue, CancellationToken ct) =>
+        EditAsync(folder, issue, "--remove-label", ct);
+
+    private static async Task EditAsync(string folder, int issue, string flag, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("gh") { WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "issue", "edit", issue.ToString(), "--add-label", InProgress }) psi.ArgumentList.Add(a);
+        foreach (var a in new[] { "issue", "edit", issue.ToString(), flag, InProgress }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("gh did not start");
         var stderr = await p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
-        if (p.ExitCode != 0) throw new InvalidOperationException($"could not label #{issue}: {stderr.Trim()}");
+        if (p.ExitCode != 0) throw new InvalidOperationException($"could not change label on #{issue}: {stderr.Trim()}");
     }
 }
