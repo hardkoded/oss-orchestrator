@@ -138,7 +138,8 @@ while (true)
         {
             At = DateTimeOffset.UtcNow,
             DryRun = dryRun,
-            Running = running,
+            // The dashboard counts the sessions it lists. The planner still counts every open tab against the limit.
+            Running = shown.Count,
             MaxTotal = config.MaxTotal,
             Planned = plan.Select(p => $"{p.Repo}#{p.Issue}").ToList(),
             Repos = config.Repos.Select(r => new RepoStatus
