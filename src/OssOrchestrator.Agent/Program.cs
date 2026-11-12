@@ -172,7 +172,29 @@ while (true)
         await log.WriteLineAsync($"{DateTime.Now:T} pass failed: {e.Message}");
     }
 
-    await Task.Delay(TimeSpan.FromSeconds(intervalSec));
+    await WaitForNextPassAsync(db, intervalSec, log);
+}
+
+// Waits between passes, but wakes early when a dashboard Refresh is queued, so the next pass starts right away.
+static async Task WaitForNextPassAsync(DbStore db, int seconds, TextWriter log)
+{
+    var deadline = DateTime.UtcNow.AddSeconds(seconds);
+    while (DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        try
+        {
+            if ((await db.PendingCommandsAsync()).Any(c => c.Type == "refresh"))
+            {
+                await log.WriteLineAsync($"{DateTime.Now:T} refresh requested: running a pass now");
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            await log.WriteLineAsync($"{DateTime.Now:T} refresh check failed: {e.Message}");
+        }
+    }
 }
 
 // Removes the blocked label on GitHub. Failures become the command's result, so one bad command never stops the pass.

@@ -47,6 +47,9 @@ public static class Applier
                 repo.Ignored.Remove(n);
                 return $"restored {repo.Repo} #{n}";
             }
+            case "refresh":
+                // Nothing to change here: the pass that applies this command reads GitHub, Herdr and state again.
+                return "refreshed: full pass run";
             default:
                 return $"unknown command {cmd.Type}";
         }
