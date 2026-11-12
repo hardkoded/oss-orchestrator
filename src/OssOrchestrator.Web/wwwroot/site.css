@@ -8,7 +8,7 @@ h1 { font-size: 18px; font-weight: 600; margin: 0; }
 nav a { color: var(--accent); text-decoration: none; font-size: 14px; }
 nav a:hover { text-decoration: underline; }
 h2 { font-size: 12px; font-weight: 600; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; overflow-x: auto; }
 .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
 .kpi { padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
 .kpi b { display:block; font-size: 22px; font-weight: 600; line-height: 1.2; }
