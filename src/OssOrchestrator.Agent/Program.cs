@@ -157,6 +157,17 @@ while (true)
         {
             var repo = config.Repos.First(r => r.Repo == launch.Repo);
             var task = Brief.For(repo.Repo, launch.Issue);
+            if (!dryRun)
+            {
+                try
+                {
+                    await Brief.SyncReferenceAsync(repo.Repo, CancellationToken.None);
+                }
+                catch (Exception e)
+                {
+                    await log.WriteLineAsync($"{DateTime.Now:T} could not sync the reference fork for {repo.Repo}: {e.Message}");
+                }
+            }
             if (config.Mode == "cloud")
             {
                 if (dryRun)

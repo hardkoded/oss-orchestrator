@@ -94,7 +94,7 @@
         else
         {
             <table>
-                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Session</th><th>Session ID</th><th>PR</th><th>PR status</th><th></th></tr></thead>
+                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Session</th><th>Cloud</th><th>PR</th><th>PR status</th><th></th></tr></thead>
                 <tbody>
                 @foreach (var s in state.Sessions)
                 {
@@ -104,7 +104,7 @@
                         <td class="title">@s.Title</td>
                         <td><span class="pill @SessionClass(s.Status)">@StatusText(s.Status)</span></td>
                         <td>
-                            @if (s.CloudSessionUrl is not null) { <a href="@s.CloudSessionUrl" target="_blank" rel="noopener">@s.CloudSessionId</a> }
+                            @if (s.CloudSessionUrl is not null) { <a href="@s.CloudSessionUrl" target="_blank" rel="noopener">View session</a> }
                             else { <span class="muted">local</span> }
                         </td>
                         <td>
