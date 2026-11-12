@@ -2,13 +2,10 @@ using System.Text.Json;
 
 namespace OssOrchestrator.Agent;
 
-/// <summary>A command from the dashboard. Its fields are data only; they are never run as code.</summary>
-public sealed record DashboardCommand(string Id, string Type, string? Repo, int? Issue, JsonElement? Value);
-
-public static class CommandApplier
+/// <summary>Applies one dashboard command to the config document. Command fields are data; they are never run.</summary>
+public static class Applier
 {
-    /// <summary>Applies one command to the in-memory config. Returns a short result line for the log.</summary>
-    public static string Apply(AgentConfig config, DashboardCommand cmd)
+    public static string Apply(ConfigDoc config, CommandDoc cmd)
     {
         switch (cmd.Type)
         {
@@ -31,7 +28,7 @@ public static class CommandApplier
             case "ignore":
             case "restore":
             {
-                var repo = config.Find(cmd.Repo ?? "");
+                var repo = config.Repos.FirstOrDefault(r => r.Repo == cmd.Repo);
                 if (repo is null) return $"unknown repo {cmd.Repo}";
                 switch (cmd.Type)
                 {
@@ -42,7 +39,11 @@ public static class CommandApplier
                         return $"auto {(repo.Auto ? "on" : "off")} for {repo.Repo}";
                 }
                 if (cmd.Issue is not int n) return "missing issue number";
-                if (cmd.Type == "ignore") { repo.Ignored.Add(n); return $"ignored {repo.Repo} #{n}"; }
+                if (cmd.Type == "ignore")
+                {
+                    if (!repo.Ignored.Contains(n)) repo.Ignored.Add(n);
+                    return $"ignored {repo.Repo} #{n}";
+                }
                 repo.Ignored.Remove(n);
                 return $"restored {repo.Repo} #{n}";
             }

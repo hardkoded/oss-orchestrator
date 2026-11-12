@@ -1,33 +1,39 @@
-using System.Text.Json;
-using Azure.Storage.Queues;
 using OssOrchestrator.Agent;
 
-// Dry run is the default: the agent plans and publishes, but does not start Claude sessions.
-// Set ORC_DRY_RUN=false only after the panel's own auto-launch is turned off.
+// Source of truth: the Cosmos database (orc/config, orc/commands, orc/state). This loop reads config and
+// pending commands from it, plans, launches, and writes the state back.
+// Dry run is the default: it plans and publishes, but does not start sessions. Set ORC_DRY_RUN=false to launch.
 var dryRun = Environment.GetEnvironmentVariable("ORC_DRY_RUN") != "false";
-var dataDir = Environment.GetEnvironmentVariable("ORC_DATA")
-    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "herdr-app", "orc-data");
-var intervalSec = int.TryParse(Environment.GetEnvironmentVariable("ORC_INTERVAL_SEC"), out var s) ? s : 60;
-var connection = Environment.GetEnvironmentVariable("ORC_QUEUE_CONNECTION")
-    ?? throw new InvalidOperationException("Set ORC_QUEUE_CONNECTION to the Storage Queue connection string.");
+var endpoint = Environment.GetEnvironmentVariable("ORC_COSMOS_ENDPOINT")
+    ?? throw new InvalidOperationException("Set ORC_COSMOS_ENDPOINT.");
+var key = Environment.GetEnvironmentVariable("ORC_COSMOS_KEY")
+    ?? throw new InvalidOperationException("Set ORC_COSMOS_KEY (kept on this machine only).");
+var panelRepos = Environment.GetEnvironmentVariable("ORC_PANEL_REPOS")
+    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "herdr-app", "orc-data", "repos.json");
+var intervalSec = int.TryParse(Environment.GetEnvironmentVariable("ORC_INTERVAL_SEC"), out var s) ? s : 120;
 
 var log = Console.Out;
-var config = new AgentConfig { DataDir = dataDir };
+var db = DbStore.Connect(endpoint, key);
 var github = new GitHub();
 var herdr = new Herdr(dryRun, log);
-var commands = new QueueClient(connection, "orc-commands");
-var state = new QueueClient(connection, "orc-state");
-await commands.CreateIfNotExistsAsync();
-await state.CreateIfNotExistsAsync();
 
-await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, data={dataDir}, every {intervalSec}s)");
+await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, every {intervalSec}s, database = source of truth)");
 
 while (true)
 {
     try
     {
-        config.Load();
-        await ApplyCommandsAsync(config, commands, log);
+        var config = await db.LoadConfigAsync(panelRepos);
+
+        foreach (var cmd in await db.PendingCommandsAsync())
+        {
+            var result = Applier.Apply(config, cmd);
+            await log.WriteLineAsync($"command {cmd.Type}: {result}");
+            await db.SaveConfigAsync(config);
+            cmd.Processed = true;
+            cmd.Result = result;
+            await db.MarkCommandAsync(cmd);
+        }
 
         var issues = new Dictionary<string, IReadOnlyList<IssueInfo>>();
         var errors = new Dictionary<string, string>();
@@ -37,7 +43,7 @@ while (true)
             catch (Exception e) { errors[repo.Repo] = e.Message; }
         }
 
-        var running = config.RunningNow();
+        var running = await herdr.RunningCountAsync(CancellationToken.None);
         var plan = Planner.Plan(new PlanInput(
             MaxTotal: config.MaxTotal,
             Running: running,
@@ -50,12 +56,34 @@ while (true)
 
         foreach (var launch in plan)
         {
-            var repo = config.Find(launch.Repo)!;
-            await herdr.LaunchAsync(new RepoSettings(repo.Repo, repo.Folder, repo.Paused, repo.Auto), launch.Issue,
-                $"You are a worker of the issue orchestrator. Resolve issue #{launch.Issue} of {repo.Repo}.", CancellationToken.None);
+            var repo = config.Repos.First(r => r.Repo == launch.Repo);
+            var task = Brief.For(repo.Repo, launch.Issue);
+            await herdr.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
+            if (!dryRun)
+            {
+                // Assign first, so the issue is never offered twice, then record the launch in the database.
+                await IssueAssigner.AssignSelfAsync(repo.Folder, launch.Issue, CancellationToken.None);
+                repo.Launched[launch.Issue.ToString()] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                await db.SaveConfigAsync(config);
+            }
         }
 
-        await PublishAsync(state, config, running, issues, errors, plan.Count, dryRun);
+        await db.PutStateAsync(new StateDoc
+        {
+            At = DateTimeOffset.UtcNow,
+            DryRun = dryRun,
+            Running = running,
+            MaxTotal = config.MaxTotal,
+            Planned = plan.Select(p => $"{p.Repo}#{p.Issue}").ToList(),
+            Repos = config.Repos.Select(r => new RepoStatus
+            {
+                Repo = r.Repo,
+                Paused = r.Paused,
+                Auto = r.Auto,
+                OpenIssues = issues.TryGetValue(r.Repo, out var list) ? list.Count : 0,
+                Error = errors.GetValueOrDefault(r.Repo),
+            }).ToList(),
+        });
         await log.WriteLineAsync($"{DateTime.Now:T} pass done: running={running} planned={plan.Count} errors={errors.Count}");
     }
     catch (Exception e)
@@ -64,47 +92,4 @@ while (true)
     }
 
     await Task.Delay(TimeSpan.FromSeconds(intervalSec));
-}
-
-static async Task ApplyCommandsAsync(AgentConfig config, QueueClient queue, TextWriter log)
-{
-    var batch = await queue.ReceiveMessagesAsync(maxMessages: 10, visibilityTimeout: TimeSpan.FromMinutes(1));
-    foreach (var message in batch.Value)
-    {
-        try
-        {
-            var cmd = JsonSerializer.Deserialize<DashboardCommand>(message.MessageText,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            if (cmd is not null) await log.WriteLineAsync($"command {cmd.Type}: {CommandApplier.Apply(config, cmd)}");
-        }
-        catch (JsonException e)
-        {
-            await log.WriteLineAsync($"bad command message dropped: {e.Message}");
-        }
-        await queue.DeleteMessageAsync(message.MessageId, message.PopReceipt);
-    }
-}
-
-static async Task PublishAsync(QueueClient state, AgentConfig config, int running,
-    Dictionary<string, IReadOnlyList<IssueInfo>> issues, Dictionary<string, string> errors, int planned, bool dryRun)
-{
-    var snapshot = new
-    {
-        at = DateTimeOffset.UtcNow,
-        dryRun,
-        running,
-        maxTotal = config.MaxTotal,
-        planned,
-        repos = config.Repos.Select(r => new
-        {
-            repo = r.Repo,
-            paused = r.Paused,
-            auto = r.Auto,
-            openIssues = issues.TryGetValue(r.Repo, out var list) ? list.Count : 0,
-            error = errors.GetValueOrDefault(r.Repo),
-        }),
-    };
-    // Only the latest snapshot matters: clear the queue, then send one message that expires in 10 minutes.
-    await state.ClearMessagesAsync();
-    await state.SendMessageAsync(JsonSerializer.Serialize(snapshot), timeToLive: TimeSpan.FromMinutes(10));
 }
