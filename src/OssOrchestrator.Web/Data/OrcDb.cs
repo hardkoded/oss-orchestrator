@@ -21,6 +21,7 @@ public sealed class ConfigDoc
 {
     public string Id { get; set; } = "config";
     public int MaxTotal { get; set; } = 6;
+    public string Mode { get; set; } = "local";
     public List<RepoDoc> Repos { get; set; } = [];
 }
 
@@ -71,6 +72,8 @@ public sealed class SessionStatus
     public bool PrDraft { get; set; }
     /// <summary>pending, building, ready, failed or conflicted.</summary>
     public string PrStatus { get; set; } = "pending";
+    public string? CloudSessionId { get; set; }
+    public string? CloudSessionUrl { get; set; }
 }
 
 public sealed class RepoIssues

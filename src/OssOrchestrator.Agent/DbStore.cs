@@ -22,6 +22,8 @@ public sealed class ConfigDoc
 {
     public string Id { get; set; } = "config";
     public int MaxTotal { get; set; } = 6;
+    /// <summary>"local" starts Herdr sessions on this PC. "cloud" is stored now; the agent still launches locally until cloud launches exist.</summary>
+    public string Mode { get; set; } = "local";
     public List<RepoDoc> Repos { get; set; } = [];
 }
 
@@ -71,6 +73,9 @@ public sealed class SessionStatus
     public bool PrDraft { get; set; }
     /// <summary>pending, building, ready, failed or conflicted.</summary>
     public string PrStatus { get; set; } = "pending";
+    /// <summary>The cloud session's id and link. Null for a local Herdr session.</summary>
+    public string? CloudSessionId { get; set; }
+    public string? CloudSessionUrl { get; set; }
 }
 
 public sealed class RepoIssues

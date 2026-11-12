@@ -4,7 +4,7 @@ namespace OssOrchestrator.Web.Data;
 public static class CommandFactory
 {
     private static readonly string[] Allowed =
-        ["pause", "resume", "pause_all", "resume_all", "auto", "ignore", "restore", "unblock", "refresh", "limit"];
+        ["pause", "resume", "pause_all", "resume_all", "auto", "ignore", "restore", "unblock", "refresh", "limit", "mode"];
 
     public static (CommandDoc? Command, string? Error) Build(string type, string? repo, int? issue, string? value, string? by)
     {
@@ -12,6 +12,11 @@ public static class CommandFactory
 
         object? parsed = null;
         if (type == "auto") parsed = value == "true";
+        if (type == "mode")
+        {
+            if (value is not ("cloud" or "local")) return (null, "Mode must be cloud or local.");
+            parsed = value;
+        }
         if (type == "limit")
         {
             if (!int.TryParse(value, out var limit) || limit is < 1 or > 20) return (null, "Limit must be between 1 and 20.");

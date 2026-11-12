@@ -41,6 +41,27 @@
     </div>
 
     <div class="card">
+        <h2>Launch mode</h2>
+        <p class="muted">Current: <b>@(config?.Mode ?? "local")</b>. Local starts Herdr sessions on this PC.</p>
+        <div class="row">
+            <form method="post" asp-page-handler="Command" class="inline">
+                <input type="hidden" name="type" value="mode" />
+                <input type="hidden" name="value" value="cloud" />
+                <button type="submit">Cloud</button>
+            </form>
+            <form method="post" asp-page-handler="Command" class="inline">
+                <input type="hidden" name="type" value="mode" />
+                <input type="hidden" name="value" value="local" />
+                <button type="submit">Local</button>
+            </form>
+        </div>
+        @if (config?.Mode == "cloud")
+        {
+            <p class="muted">Cloud launches are not built yet, so the agent still starts sessions on this PC.</p>
+        }
+    </div>
+
+    <div class="card">
         <h2>Repos</h2>
         @if (config is null || config.Repos.Count == 0)
         {

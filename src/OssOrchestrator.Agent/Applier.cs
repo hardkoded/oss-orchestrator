@@ -47,6 +47,13 @@ public static class Applier
                 repo.Ignored.Remove(n);
                 return $"restored {repo.Repo} #{n}";
             }
+            case "mode":
+                if (cmd.Value is { ValueKind: JsonValueKind.String } m && m.GetString() is "cloud" or "local")
+                {
+                    config.Mode = m.GetString()!;
+                    return $"mode set to {config.Mode}";
+                }
+                return "mode must be cloud or local";
             case "refresh":
                 // Nothing to change here: the pass that applies this command reads GitHub, Herdr and state again.
                 return "refreshed: full pass run";
