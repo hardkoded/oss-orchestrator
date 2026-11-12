@@ -68,7 +68,19 @@ while (true)
                 try { open = await github.IssueIsOpenAsync(folder, sess.Issue, CancellationToken.None); }
                 catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read state of {sess.Repo}#{sess.Issue}: {e.Message}"); }
             }
-            if (open) shown.Add(sess);
+            if (!open) continue;
+            var listedSession = sess;
+            // Herdr says "idle" or "done" for a worker waiting on a question too, so the screen is checked.
+            if (sess.Terminal is not null && sess.Status is "done" or "idle")
+            {
+                try
+                {
+                    if (await ScreenReader.NeedsAnswerAsync(sess.Terminal, CancellationToken.None))
+                        listedSession = sess with { Status = "blocked" };
+                }
+                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read the screen of {sess.Repo}#{sess.Issue}: {e.Message}"); }
+            }
+            shown.Add(listedSession);
         }
         var running = shown.Count;
 

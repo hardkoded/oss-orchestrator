@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace OssOrchestrator.Agent;
 
 /// <summary>An open "orc #N" tab: its repo (the space name), issue, and the status of its worker.</summary>
-public sealed record SessionInfo(string Repo, int Issue, string Status);
+public sealed record SessionInfo(string Repo, int Issue, string Status, string? Terminal = null);
 
 /// <summary>Starts Claude workers in Herdr: one tab per issue inside the repo's space. DryRun only logs.</summary>
 public sealed class Herdr(bool dryRun, TextWriter log)
@@ -28,7 +28,10 @@ public sealed class Herdr(bool dryRun, TextWriter log)
                 var status = tab.GetProperty("terminals").EnumerateArray()
                     .Select(t => t.TryGetProperty("status", out var s) ? s.GetString() : null)
                     .FirstOrDefault(s => s is not null) ?? "unknown";
-                result.Add(new SessionInfo(repo, issue, status));
+                var terminal = tab.GetProperty("terminals").EnumerateArray()
+                    .Select(t => t.TryGetProperty("terminal", out var s) ? s.GetString() : null)
+                    .FirstOrDefault(s => s is not null);
+                result.Add(new SessionInfo(repo, issue, status, terminal));
             }
         }
         return result;
