@@ -4,7 +4,7 @@ namespace OssOrchestrator.Web.Data;
 public static class CommandFactory
 {
     private static readonly string[] Allowed =
-        ["pause", "resume", "pause_all", "resume_all", "auto", "ignore", "restore", "unblock", "refresh", "limit", "mode"];
+        ["pause", "resume", "pause_all", "resume_all", "auto", "ignore", "restore", "unblock", "block_session", "refresh", "limit", "mode"];
 
     public static (CommandDoc? Command, string? Error) Build(string type, string? repo, int? issue, string? value, string? by)
     {

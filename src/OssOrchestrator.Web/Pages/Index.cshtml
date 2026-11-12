@@ -129,6 +129,14 @@
                                     <button type="submit">Restore</button>
                                 </form>
                             }
+                            <form method="post" asp-page-handler="Command" class="inline"
+                                  onsubmit="return confirm('Block #@s.Issue and end its session? The issue gets the blocked label.');">
+                                <input type="hidden" name="type" value="block_session" />
+                                <input type="hidden" name="repo" value="@s.Repo" />
+                                <input type="hidden" name="issue" value="@s.Issue" />
+                                <input type="hidden" name="tab" value="@Model.Tab" />
+                                <button type="submit">Block</button>
+                            </form>
                         </td>
                     </tr>
                 }

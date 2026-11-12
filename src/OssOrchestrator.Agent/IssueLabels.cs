@@ -19,6 +19,10 @@ public static class IssueLabels
     public static Task RemoveInProgressAsync(string folder, int issue, CancellationToken ct) =>
         EditAsync(folder, issue, "--remove-label", InProgress, ct);
 
+    /// <summary>Adds the blocked label, set by a dashboard Block, so the orchestrator never takes the issue again.</summary>
+    public static Task MarkBlockedAsync(string folder, int issue, CancellationToken ct) =>
+        EditAsync(folder, issue, "--add-label", Blocked, ct);
+
     /// <summary>Removes the blocked label, set by a dashboard Unblock, so the issue can be taken again.</summary>
     public static Task RemoveBlockedAsync(string folder, int issue, CancellationToken ct) =>
         EditAsync(folder, issue, "--remove-label", Blocked, ct);

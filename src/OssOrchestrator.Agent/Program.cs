@@ -27,9 +27,12 @@ while (true)
 
         foreach (var cmd in await db.PendingCommandsAsync())
         {
-            var result = cmd.Type == "unblock"
-                ? await UnblockAsync(config, cmd, dryRun, log)
-                : Applier.Apply(config, cmd);
+            var result = cmd.Type switch
+            {
+                "unblock" => await UnblockAsync(config, cmd, dryRun, log),
+                "block_session" => await BlockSessionAsync(config, cmd, dryRun, herdr, log),
+                _ => Applier.Apply(config, cmd),
+            };
             await log.WriteLineAsync($"command {cmd.Type}: {result}");
             await db.SaveConfigAsync(config);
             cmd.Processed = true;
@@ -202,6 +205,34 @@ while (true)
     }
 
     await WaitForNextPassAsync(db, intervalSec, log);
+}
+
+// Blocks an issue and releases its session. The blocked label is set first: if that fails, the session keeps running.
+static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bool dryRun, Herdr herdr, TextWriter log)
+{
+    var repo = config.Repos.FirstOrDefault(r => r.Repo == cmd.Repo);
+    if (repo is null) return $"unknown repo {cmd.Repo}";
+    if (cmd.Issue is not int n) return "missing issue number";
+    if (dryRun) return $"dry run: would block {repo.Repo} #{n} and close its session";
+    try
+    {
+        await IssueLabels.MarkBlockedAsync(repo.Folder, n, CancellationToken.None);
+    }
+    catch (Exception e)
+    {
+        await log.WriteLineAsync($"{DateTime.Now:T} could not block {repo.Repo}#{n}: {e.Message}");
+        return $"could not block {repo.Repo} #{n}: {e.Message}";
+    }
+    try
+    {
+        await herdr.CloseSessionAsync(repo.Repo, n, CancellationToken.None);
+        return $"blocked {repo.Repo} #{n} and closed its session";
+    }
+    catch (Exception e)
+    {
+        await log.WriteLineAsync($"{DateTime.Now:T} blocked {repo.Repo}#{n} but could not close its session: {e.Message}");
+        return $"blocked {repo.Repo} #{n}, but its session did not close: {e.Message}";
+    }
 }
 
 // Waits between passes, but wakes early when a dashboard Refresh is queued, so the next pass starts right away.

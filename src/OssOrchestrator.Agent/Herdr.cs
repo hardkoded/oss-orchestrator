@@ -60,6 +60,21 @@ public sealed class Herdr(bool dryRun, TextWriter log)
                 "--argv", argv, "--task", task);
     }
 
+    /// <summary>Closes the "orc #N" tab of a repo and ends its terminal, so the worker is released. Nothing to do if it is gone.</summary>
+    public async Task CloseSessionAsync(string repo, int issue, CancellationToken ct)
+    {
+        var tabName = $"{Prefix}{issue}";
+        using var listing = JsonDocument.Parse(await RunAsync(ct, "ls"));
+        var tabId = listing.RootElement.GetProperty("spaces").EnumerateArray()
+            .Where(s => s.GetProperty("name").GetString() == repo)
+            .SelectMany(s => s.GetProperty("tabs").EnumerateArray())
+            .Where(t => t.GetProperty("name").GetString() == tabName)
+            .Select(t => t.GetProperty("id").GetString())
+            .FirstOrDefault();
+        if (tabId is null) return;
+        await RunAsync(ct, "do", "tab.close", "--id", tabId, "--confirmed", "true");
+    }
+
     private static async Task<string> RunAsync(CancellationToken ct, params string[] args)
     {
         var psi = new ProcessStartInfo(HerdrApp) { RedirectStandardOutput = true, RedirectStandardError = true };
