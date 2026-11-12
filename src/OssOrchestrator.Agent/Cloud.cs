@@ -42,7 +42,7 @@ public static partial class CloudSessions
     {
         var name = $"orc-{issue}-{DateTime.UtcNow:HHmmss}";
         var psi = new ProcessStartInfo("hc") { WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "run", "--name", name, "claude", "--cloud", "--settings", WriteWorkerSettings(), task }) psi.ArgumentList.Add(a);
+        foreach (var a in new[] { "run", "--name", name, "claude", "--settings", WriteWorkerSettings(), "--cloud", task }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("hc did not start");
         var stdout = await p.StandardOutput.ReadToEndAsync(ct);
         var stderr = await p.StandardError.ReadToEndAsync(ct);
