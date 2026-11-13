@@ -157,7 +157,7 @@
             <nav class="tabs">
                 @foreach (var r in state.Issues)
                 {
-                    <a asp-page="/Index" asp-route-tab="@r.Repo" class="@(r.Repo == Model.Tab ? "tab active" : "tab")">@r.Repo</a>
+                    <a asp-page="/Index" asp-route-tab="@r.Repo" class="@(r.Repo == Model.Tab ? "tab active" : "tab")">@r.Repo (@r.Items.Count)</a>
                 }
             </nav>
             @if (tabIssues is null || tabIssues.Items.Count == 0)
