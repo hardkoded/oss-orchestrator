@@ -130,6 +130,24 @@ public sealed class GitHub
         return result;
     }
 
+    /// <summary>Issues closed on or after the given date, newest first. Feeds the closed-issues card and the 30-day chart.</summary>
+    public async Task<IReadOnlyList<ClosedIssue>> ClosedIssuesAsync(string repo, string folder, DateTime sinceLocal, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "issue", "list", "--state", "closed", "--search", $"closed:>={sinceLocal:yyyy-MM-dd}",
+            "--limit", "1000", "--json", "number,title,closedAt");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.EnumerateArray()
+            .Select(e => new ClosedIssue
+            {
+                Repo = repo,
+                Number = e.GetProperty("number").GetInt32(),
+                Title = e.GetProperty("title").GetString() ?? "",
+                ClosedAt = e.GetProperty("closedAt").GetDateTimeOffset(),
+            })
+            .OrderByDescending(c => c.ClosedAt)
+            .ToList();
+    }
+
     /// <summary>True while the issue is open. Used for a session whose issue is not in the open-issue list.</summary>
     public async Task<bool> IssueIsOpenAsync(string folder, int issue, CancellationToken ct)
     {

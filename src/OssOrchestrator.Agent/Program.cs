@@ -46,8 +46,13 @@ while (true)
         var inProgress = new Dictionary<string, IReadOnlySet<int>>();
         var needsAnswer = new Dictionary<string, IReadOnlySet<int>>();
         var errors = new Dictionary<string, string>();
+        var closed = new List<ClosedIssue>();
+        var today = DateTime.Now.Date;
         foreach (var repo in config.Repos)
         {
+            // Not critical: a failed lookup only leaves this repo out of the closed card and the chart.
+            try { closed.AddRange(await github.ClosedIssuesAsync(repo.Repo, repo.Folder, today.AddDays(-29), CancellationToken.None)); }
+            catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read closed issues of {repo.Repo}: {e.Message}"); }
             var settings = new RepoSettings(repo.Repo, repo.Folder, repo.Paused, repo.Auto);
             try { issues[repo.Repo] = await github.OpenIssuesAsync(settings, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
@@ -251,6 +256,12 @@ while (true)
                     CloudSessionId = sess.CloudSessionId,
                     CloudSessionUrl = sess.CloudSessionUrl,
                 };
+            }).ToList(),
+            Closed = closed.Where(c => c.ClosedAt > DateTimeOffset.UtcNow.AddHours(-24)).OrderByDescending(c => c.ClosedAt).ToList(),
+            Daily = Enumerable.Range(0, 30).Select(n => today.AddDays(n - 29)).Select(day => new DailyClosed
+            {
+                Day = day.ToString("yyyy-MM-dd"),
+                Count = closed.Count(c => c.ClosedAt.ToLocalTime().Date == day),
             }).ToList(),
             Issues = config.Repos.Select(r => new RepoIssues
             {
