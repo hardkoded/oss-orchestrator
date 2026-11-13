@@ -56,6 +56,39 @@ public class PlannerTests
         Assert.Equal([3], result.Select(l => l.Issue));
     }
 
+    private static PlanInput MultiRepo(int slots, Dictionary<string, long>? launched = null)
+    {
+        var names = new[] { "o/a", "o/b", "o/c", "o/d" };
+        return new PlanInput(
+            MaxTotal: slots, Running: 0,
+            Repos: names.Select(n => new RepoSettings(n, @"C:\" + n[2..], Paused: false, Auto: true)).ToList(),
+            IssuesByRepo: names.ToDictionary(n => n, n => (IReadOnlyList<IssueInfo>)[new IssueInfo(1, "x", false), new IssueInfo(2, "y", false)]),
+            Ignored: new HashSet<string>(),
+            LaunchedAt: launched ?? new Dictionary<string, long>(),
+            NowMs: 1_000_000_000);
+    }
+
+    [Fact]
+    public void Four_free_slots_take_one_issue_from_each_of_four_repos()
+    {
+        var result = Planner.Plan(MultiRepo(slots: 4));
+        Assert.Equal(["o/a", "o/b", "o/c", "o/d"], result.Select(r => r.Repo));
+        Assert.All(result, r => Assert.Equal(1, r.Issue));
+    }
+
+    [Fact]
+    public void With_one_free_slot_the_repo_that_launched_longest_ago_goes_first()
+    {
+        var launched = new Dictionary<string, long>
+        {
+            ["o/a#1"] = 1_000_000_000 - 60_000,
+            ["o/b#1"] = 1_000_000_000 - 120_000,
+            ["o/c#1"] = 1_000_000_000 - 30_000,
+        };
+        var result = Planner.Plan(MultiRepo(slots: 1, launched));
+        Assert.Equal("o/d", result.Single().Repo);
+    }
+
     [Fact]
     public void A_launch_older_than_15_minutes_is_eligible_again()
     {

@@ -23,27 +23,58 @@ public static class Planner
     /// <summary>
     /// Picks which free issues to launch now. Global limit only (no per-repo limit).
     /// Only repos with Auto on and not Paused take part. Candidates are unassigned, not ignored and not launched
-    /// in the last 15 minutes. Lowest issue number first, across all repos.
+    /// in the last 15 minutes. Repos take turns (round robin), and each repo offers its lowest issue number first.
     /// </summary>
     public static IReadOnlyList<Launch> Plan(PlanInput input)
     {
         var slots = input.MaxTotal - input.Running;
         if (slots <= 0) return [];
 
-        var candidates = new List<Launch>();
+        // Candidates per repo, lowest issue number first within a repo.
+        var perRepo = new Dictionary<string, List<Launch>>();
         foreach (var repo in input.Repos)
         {
             if (!repo.Auto || repo.Paused) continue;
             if (!input.IssuesByRepo.TryGetValue(repo.Repo, out var issues)) continue;
-            foreach (var issue in issues)
+            foreach (var issue in issues.OrderBy(i => i.Number))
             {
                 if (issue.Assigned || issue.InProgress || issue.Blocked) continue;
                 var key = $"{repo.Repo}#{issue.Number}";
                 if (input.Ignored.Contains(key)) continue;
                 if (input.LaunchedAt.TryGetValue(key, out var at) && input.NowMs - at < input.RecentLaunchMs) continue;
-                candidates.Add(new Launch(repo.Repo, issue.Number));
+                if (!perRepo.TryGetValue(repo.Repo, out var list)) perRepo[repo.Repo] = list = [];
+                list.Add(new Launch(repo.Repo, issue.Number));
             }
         }
-        return candidates.OrderBy(c => c.Issue).Take(slots).ToList();
+
+        // Round robin across repos. The repo that launched longest ago goes first, so with fewer free slots than
+        // repos, each repo gets a turn over successive passes. Ties keep the order of the repo list.
+        var lastLaunch = new Dictionary<string, long>();
+        foreach (var (key, at) in input.LaunchedAt)
+        {
+            var hash = key.LastIndexOf('#');
+            if (hash < 0) continue;
+            var repoName = key[..hash];
+            lastLaunch[repoName] = Math.Max(lastLaunch.GetValueOrDefault(repoName), at);
+        }
+        var order = input.Repos
+            .Select((r, index) => (r.Repo, index))
+            .Where(x => perRepo.ContainsKey(x.Repo))
+            .OrderBy(x => lastLaunch.GetValueOrDefault(x.Repo, 0))
+            .ThenBy(x => x.index)
+            .Select(x => x.Repo)
+            .ToList();
+
+        var queues = order.Select(name => new Queue<Launch>(perRepo[name])).ToList();
+        var picked = new List<Launch>();
+        while (picked.Count < slots && queues.Any(q => q.Count > 0))
+        {
+            foreach (var queue in queues)
+            {
+                if (picked.Count >= slots) break;
+                if (queue.Count > 0) picked.Add(queue.Dequeue());
+            }
+        }
+        return picked;
     }
 }

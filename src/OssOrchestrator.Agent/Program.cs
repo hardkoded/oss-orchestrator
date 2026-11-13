@@ -183,7 +183,7 @@ while (true)
                 {
                     try
                     {
-                        var cloud = await CloudSessions.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
+                        var cloud = await CloudSessions.LaunchRoutineAsync(repo.Repo, launch.Issue, CancellationToken.None);
                         repo.Cloud[launch.Issue.ToString()] = cloud;
                         await log.WriteLineAsync($"{DateTime.Now:T} started cloud session for {repo.Repo}#{launch.Issue}: {cloud.Url}");
                     }
