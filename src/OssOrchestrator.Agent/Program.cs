@@ -254,6 +254,7 @@ while (true)
                     PrStatus = pr?.Status ?? "pending",
                     CloudSessionId = sess.CloudSessionId,
                     CloudSessionUrl = sess.CloudSessionUrl,
+                    StartedAt = StartedAt(config, sess),
                 };
             }).ToList(),
             ClosedLast24h = closedLast24h,
@@ -352,4 +353,14 @@ static async Task<string> UnblockAsync(ConfigDoc config, CommandDoc cmd, bool dr
         await log.WriteLineAsync($"{DateTime.Now:T} could not unblock {repo.Repo}#{n}: {e.Message}");
         return $"could not unblock {repo.Repo} #{n}: {e.Message}";
     }
+}
+
+// The launch time the agent recorded: the cloud document's creation time, else the launch stamp of the issue.
+static DateTimeOffset? StartedAt(ConfigDoc config, SessionInfo sess)
+{
+    var repo = config.Repos.FirstOrDefault(r => r.Repo == sess.Repo);
+    if (repo is null) return null;
+    var key = sess.Issue.ToString();
+    if (repo.Cloud.TryGetValue(key, out var cloud) && cloud.CreatedAt != default) return cloud.CreatedAt;
+    return repo.Launched.TryGetValue(key, out var ms) ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
 }

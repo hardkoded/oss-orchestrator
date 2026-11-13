@@ -83,6 +83,8 @@ public sealed class SessionStatus
     /// <summary>The cloud session's id and link. Null for a local Herdr session.</summary>
     public string? CloudSessionId { get; set; }
     public string? CloudSessionUrl { get; set; }
+    /// <summary>When the agent launched the session. Null for one it did not launch.</summary>
+    public DateTimeOffset? StartedAt { get; set; }
 }
 
 public sealed class RepoIssues
