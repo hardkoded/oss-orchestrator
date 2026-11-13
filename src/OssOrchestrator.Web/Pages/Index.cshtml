@@ -66,6 +66,7 @@
             <div class="kpi"><b>@(state?.Running ?? 0)</b><span>sessions running</span></div>
             <div class="kpi"><b>@(state?.MaxTotal ?? 0)</b><span>global limit</span></div>
             <div class="kpi"><b>@(state?.Planned.Count ?? 0)</b><span>planned to launch</span></div>
+            <div class="kpi"><b>@(state?.ClosedLast24h ?? 0)</b><span>issues closed in 24h</span></div>
             <div class="kpi"><b>@(state?.DryRun == true ? "dry-run" : "live")</b><span>agent mode</span></div>
         </div>
         @if (state is not null)
@@ -208,65 +209,6 @@
                     </tbody>
                 </table>
             }
-        }
-    </div>
-
-    <div class="card">
-        <h2>Closed in the last 24 hours@(state is null ? "" : $" ({state.Closed.Count})")</h2>
-        @if (state is null || state.Closed.Count == 0)
-        {
-            <p class="muted">Nothing closed in the last 24 hours.</p>
-        }
-        else
-        {
-            <table>
-                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Closed</th></tr></thead>
-                <tbody>
-                @foreach (var c in state.Closed)
-                {
-                    <tr>
-                        <td class="muted">@c.Repo</td>
-                        <td class="num"><a href="https://github.com/@c.Repo/issues/@c.Number" target="_blank" rel="noopener">#@c.Number</a></td>
-                        <td class="title">@c.Title</td>
-                        <td class="muted">@c.ClosedAt.ToLocalTime().ToString("MM-dd HH:mm")</td>
-                    </tr>
-                }
-                </tbody>
-            </table>
-        }
-    </div>
-
-    <div class="card">
-        <h2>Issues closed per day, last 30 days@(state is null || state.Daily.Count == 0 ? "" : $" ({state.Daily.Sum(d => d.Count)})")</h2>
-        @if (state is null || state.Daily.Count == 0)
-        {
-            <p class="muted">No data yet.</p>
-        }
-        else
-        {
-            var max = Math.Max(1, state.Daily.Max(d => d.Count));
-            const int barW = 20, gap = 6, chartH = 120, top = 16, bottom = 22;
-            var width = state.Daily.Count * (barW + gap);
-            <svg viewBox="0 0 @width @(chartH + top + bottom)" width="100%" role="img" aria-label="Issues closed per day over the last 30 days" style="max-width:@(width + 40)px">
-                @for (var n = 0; n < state.Daily.Count; n++)
-                {
-                    var d = state.Daily[n];
-                    var h = d.Count * chartH / max;
-                    var x = n * (barW + gap);
-                    <g>
-                        <title>@d.Day: @d.Count closed</title>
-                        <rect x="@x" y="@(top + chartH - h)" width="@barW" height="@Math.Max(h, d.Count > 0 ? 2 : 1)" rx="3" fill="@(d.Count > 0 ? "var(--accent)" : "var(--line)")" />
-                        @if (d.Count > 0)
-                        {
-                            @:<text x="@(x + barW / 2)" y="@(top + chartH - h - 4)" text-anchor="middle" font-size="10" fill="var(--muted)">@d.Count</text>
-                        }
-                        @if (n % 5 == 0 || n == state.Daily.Count - 1)
-                        {
-                            @:<text x="@(x + barW / 2)" y="@(top + chartH + 15)" text-anchor="middle" font-size="10" fill="var(--muted)">@d.Day.Substring(5)</text>
-                        }
-                    </g>
-                }
-            </svg>
         }
     </div>
 

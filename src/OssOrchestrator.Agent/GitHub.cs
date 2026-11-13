@@ -130,22 +130,13 @@ public sealed class GitHub
         return result;
     }
 
-    /// <summary>Issues closed on or after the given date, newest first. Feeds the closed-issues card and the 30-day chart.</summary>
-    public async Task<IReadOnlyList<ClosedIssue>> ClosedIssuesAsync(string repo, string folder, DateTime sinceLocal, CancellationToken ct)
+    /// <summary>How many issues were closed after the given moment. The search is by date, so the exact cut is made on closedAt.</summary>
+    public async Task<int> ClosedSinceAsync(string folder, DateTimeOffset since, CancellationToken ct)
     {
-        var json = await RunAsync(folder, ct, "issue", "list", "--state", "closed", "--search", $"closed:>={sinceLocal:yyyy-MM-dd}",
-            "--limit", "1000", "--json", "number,title,closedAt");
+        var json = await RunAsync(folder, ct, "issue", "list", "--state", "closed", "--search", $"closed:>={since.UtcDateTime:yyyy-MM-dd}",
+            "--limit", "300", "--json", "closedAt");
         using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.EnumerateArray()
-            .Select(e => new ClosedIssue
-            {
-                Repo = repo,
-                Number = e.GetProperty("number").GetInt32(),
-                Title = e.GetProperty("title").GetString() ?? "",
-                ClosedAt = e.GetProperty("closedAt").GetDateTimeOffset(),
-            })
-            .OrderByDescending(c => c.ClosedAt)
-            .ToList();
+        return doc.RootElement.EnumerateArray().Count(e => e.GetProperty("closedAt").GetDateTimeOffset() > since);
     }
 
     /// <summary>True while the issue is open. Used for a session whose issue is not in the open-issue list.</summary>

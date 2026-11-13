@@ -49,25 +49,8 @@ public sealed class StateDoc
     public List<RepoStatus> Repos { get; set; } = [];
     public List<SessionStatus> Sessions { get; set; } = [];
     public List<RepoIssues> Issues { get; set; } = [];
-    /// <summary>Issues closed in the last day, across all repos, newest first.</summary>
-    public List<ClosedIssue> Closed { get; set; } = [];
-    /// <summary>Issues closed per local day over the last 30 days, oldest first, zero days included.</summary>
-    public List<DailyClosed> Daily { get; set; } = [];
-}
-
-public sealed class ClosedIssue
-{
-    public string Repo { get; set; } = "";
-    public int Number { get; set; }
-    public string Title { get; set; } = "";
-    public DateTimeOffset ClosedAt { get; set; }
-}
-
-public sealed class DailyClosed
-{
-    /// <summary>yyyy-MM-dd.</summary>
-    public string Day { get; set; } = "";
-    public int Count { get; set; }
+    /// <summary>Issues closed in the last 24 hours, across all repos.</summary>
+    public int ClosedLast24h { get; set; }
 }
 
 public sealed class RepoStatus
