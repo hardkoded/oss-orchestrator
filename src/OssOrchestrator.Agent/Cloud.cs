@@ -95,4 +95,22 @@ public static partial class CloudSessions
         var url = doc.RootElement.GetProperty("claude_code_session_url").GetString() ?? "";
         return new CloudDoc { Id = id, Url = url, CreatedAt = DateTimeOffset.UtcNow };
     }
+
+    /// <summary>
+    /// Sends a message to a running cloud session (claude -p --cloud). The CLI takes the cse_ form of the id,
+    /// which shares its suffix with the session_ id the dashboard stores.
+    /// </summary>
+    public static async Task<bool> SendAsync(string sessionId, string text, CancellationToken ct)
+    {
+        var id = sessionId.StartsWith("session_", StringComparison.Ordinal) ? "cse_" + sessionId["session_".Length..] : sessionId;
+        var psi = new ProcessStartInfo("claude") { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
+        foreach (var a in new[] { "-p", text, "--cloud", id }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("claude did not start");
+        p.StandardInput.Close();
+        await p.StandardOutput.ReadToEndAsync(ct);
+        var stderr = await p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        if (p.ExitCode != 0) throw new InvalidOperationException(stderr.Trim());
+        return true;
+    }
 }

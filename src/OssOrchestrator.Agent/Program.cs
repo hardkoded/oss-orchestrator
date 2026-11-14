@@ -222,17 +222,18 @@ while (true)
             }
         }
 
-        // A local worker sitting idle on a PR that is red or conflicted is told so. Cloud workers have no terminal to type into.
+        // A worker on a PR that is red or conflicted is told so: a local one by typing into its terminal while it is idle,
+        // a cloud one by sending a message to its session.
         foreach (var sess in shown)
         {
             var nudgeKey = $"{sess.Repo}#{sess.Issue}";
             var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
-            if (pr is null || pr.Status is not ("failed" or "conflicted") || sess.Terminal is null)
+            if (pr is null || pr.Status is not ("failed" or "conflicted") || (sess.Terminal is null && sess.CloudSessionId is null))
             {
                 nudged.Remove(nudgeKey);
                 continue;
             }
-            if (sess.Status is not ("idle" or "done")) continue;
+            if (sess.Terminal is not null && sess.Status is not ("idle" or "done")) continue;
             if (nudged.TryGetValue(nudgeKey, out var last) && last.Pr == pr.Number && last.Status == pr.Status
                 && DateTimeOffset.UtcNow - last.At < nudgeEvery) continue;
             var text = pr.Status == "conflicted"
@@ -240,7 +241,12 @@ while (true)
                 : $"The build is red on PR #{pr.Number}. Fix the failing checks and push.";
             try
             {
-                if (await herdr.SendAsync(sess.Terminal, text, CancellationToken.None))
+                var sent = sess.Terminal is not null
+                    ? await herdr.SendAsync(sess.Terminal, text, CancellationToken.None)
+                    : dryRun
+                        ? await DryRunLogAsync(log, nudgeKey, text)
+                        : await CloudSessions.SendAsync(sess.CloudSessionId!, text, CancellationToken.None);
+                if (sent)
                 {
                     nudged[nudgeKey] = (pr.Number, pr.Status, DateTimeOffset.UtcNow);
                     await log.WriteLineAsync($"{DateTime.Now:T} told {nudgeKey} its PR is {pr.Status}");
@@ -393,4 +399,10 @@ static DateTimeOffset? StartedAt(ConfigDoc config, SessionInfo sess)
     var key = sess.Issue.ToString();
     if (repo.Cloud.TryGetValue(key, out var cloud) && cloud.CreatedAt != default) return cloud.CreatedAt;
     return repo.Launched.TryGetValue(key, out var ms) ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+}
+
+static async Task<bool> DryRunLogAsync(TextWriter log, string key, string text)
+{
+    await log.WriteLineAsync($"[dry-run] would send to {key}: {text}");
+    return true;
 }
