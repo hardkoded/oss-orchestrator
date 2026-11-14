@@ -46,8 +46,25 @@ form.inline { display: inline-flex; margin: 0; }
 .tab:hover { color: var(--fg); }
 .tab.active { color: var(--accent); border-color: var(--accent); }
 td.title { white-space: normal; }
-@media (max-width: 640px) {
+@media (max-width: 720px) {
+    main { padding: 14px 12px 40px; }
+    header { flex-wrap: wrap; gap: 8px; }
+    .card { padding: 14px; }
     .kpis { grid-template-columns: repeat(2, 1fr); }
-    th, td { white-space: normal; }
     select { min-width: 0; width: 100%; }
+    button, select, input[type=number], input[type=text] { height: 38px; }
+    .controls { justify-content: flex-start; }
+    .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab { white-space: nowrap; flex: none; padding: 8px 12px; }
+    /* Tables become one card per row: each cell shows its column name on the left. */
+    table, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tr { padding: 10px 0; border-top: 1px solid var(--line); }
+    tbody tr:first-child { border-top: none; padding-top: 0; }
+    td { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 0; padding: 4px 0; text-align: right; }
+    td::before { content: attr(data-label); color: var(--muted); font-size: 12px; flex: none; text-align: left; }
+    td[data-label=""]::before { display: none; }
+    td[data-label=""] { justify-content: flex-start; }
+    td.title { text-align: left; font-weight: 500; }
+    td.title::before { display: none; }
 }
