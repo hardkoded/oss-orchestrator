@@ -76,6 +76,26 @@ public sealed class Herdr(bool dryRun, TextWriter log)
         await RunAsync(ct, "do", "tab.close", "--id", tabId, "--confirmed", "true");
     }
 
+    /// <summary>
+    /// Types a message into a worker's terminal (hc send), only while the worker is idle so it never interrupts work.
+    /// Returns false when the worker was busy or the send failed.
+    /// </summary>
+    public async Task<bool> SendAsync(string terminal, string text, CancellationToken ct)
+    {
+        if (dryRun)
+        {
+            await log.WriteLineAsync($"[dry-run] would send to {terminal}: {text}");
+            return true;
+        }
+        var psi = new ProcessStartInfo("hc") { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "send", "--if", "idle", terminal, text }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("hc did not start");
+        await p.StandardOutput.ReadToEndAsync(ct);
+        await p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        return p.ExitCode == 0;
+    }
+
     private static async Task<string> RunAsync(CancellationToken ct, params string[] args)
     {
         var psi = new ProcessStartInfo(HerdrApp) { RedirectStandardOutput = true, RedirectStandardError = true };

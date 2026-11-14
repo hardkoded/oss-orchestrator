@@ -16,6 +16,9 @@ var log = Console.Out;
 var db = DbStore.Connect(endpoint, key);
 var github = new GitHub();
 var herdr = new Herdr(dryRun, log);
+// "repo#issue" -> the PR state a worker was last told about, so a red or conflicted PR is not repeated every pass.
+var nudged = new Dictionary<string, (int Pr, string Status, DateTimeOffset At)>();
+var nudgeEvery = TimeSpan.FromMinutes(30);
 
 await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, every {intervalSec}s, database = source of truth)");
 
@@ -217,6 +220,33 @@ while (true)
                     await log.WriteLineAsync($"{DateTime.Now:T} launched #{launch.Issue} but could not label it: {e.Message}");
                 }
             }
+        }
+
+        // A local worker sitting idle on a PR that is red or conflicted is told so. Cloud workers have no terminal to type into.
+        foreach (var sess in shown)
+        {
+            var nudgeKey = $"{sess.Repo}#{sess.Issue}";
+            var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
+            if (pr is null || pr.Status is not ("failed" or "conflicted") || sess.Terminal is null)
+            {
+                nudged.Remove(nudgeKey);
+                continue;
+            }
+            if (sess.Status is not ("idle" or "done")) continue;
+            if (nudged.TryGetValue(nudgeKey, out var last) && last.Pr == pr.Number && last.Status == pr.Status
+                && DateTimeOffset.UtcNow - last.At < nudgeEvery) continue;
+            var text = pr.Status == "conflicted"
+                ? $"PR #{pr.Number} has merge conflicts. Resolve them and push."
+                : $"The build is red on PR #{pr.Number}. Fix the failing checks and push.";
+            try
+            {
+                if (await herdr.SendAsync(sess.Terminal, text, CancellationToken.None))
+                {
+                    nudged[nudgeKey] = (pr.Number, pr.Status, DateTimeOffset.UtcNow);
+                    await log.WriteLineAsync($"{DateTime.Now:T} told {nudgeKey} its PR is {pr.Status}");
+                }
+            }
+            catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not message {nudgeKey}: {e.Message}"); }
         }
 
         await db.PutStateAsync(new StateDoc
