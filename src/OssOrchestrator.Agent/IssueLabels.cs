@@ -32,7 +32,8 @@ public static class IssueLabels
 
     private static async Task EditAsync(string folder, int issue, string flag, string label, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo("gh") { WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true };
+        var psi = new ProcessStartInfo("gh") { RedirectStandardOutput = true, RedirectStandardError = true };
+        GhEnv.Apply(psi, folder);
         foreach (var a in new[] { "issue", "edit", issue.ToString(), flag, label }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("gh did not start");
         var stderr = await p.StandardError.ReadToEndAsync(ct);

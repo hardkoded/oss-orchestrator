@@ -1,0 +1,27 @@
+# The cloud agent: one pass per run, started on a schedule by an Azure Container Apps Job.
+# Build from the repo root:  az acr build -r <registry> -t orc-agent:latest -f Dockerfile.job .
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY OssOrchestrator.slnx ./
+COPY src/OssOrchestrator.Agent/OssOrchestrator.Agent.csproj src/OssOrchestrator.Agent/
+RUN dotnet restore src/OssOrchestrator.Agent/OssOrchestrator.Agent.csproj
+COPY src/OssOrchestrator.Agent/ src/OssOrchestrator.Agent/
+RUN dotnet publish src/OssOrchestrator.Agent/OssOrchestrator.Agent.csproj -c Release -o /out --no-restore
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
+# gh reads issues and PRs; the claude CLI sends messages to cloud sessions (claude -p --cloud).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+ && mkdir -p -m 755 /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends gh nodejs \
+ && npm install -g @anthropic-ai/claude-code \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build /out .
+ENV ORC_ONCE=true ORC_CLOUD_ONLY=true ORC_DRY_RUN=false
+# Secrets come from the job: ORC_COSMOS_ENDPOINT, ORC_COSMOS_KEY, ORC_ROUTINE_TOKEN, GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN.
+ENTRYPOINT ["dotnet", "OssOrchestrator.Agent.dll"]

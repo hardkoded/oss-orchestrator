@@ -58,6 +58,20 @@ public sealed class StateDoc
     public int ClosedLast24h { get; set; }
 }
 
+/// <summary>What each worker was last told about its PR, so a red PR is not repeated on every pass (the cloud job keeps no memory between runs).</summary>
+public sealed class NudgeDoc
+{
+    public string Id { get; set; } = "nudges";
+    public Dictionary<string, NudgeEntry> Items { get; set; } = [];
+}
+
+public sealed class NudgeEntry
+{
+    public int Pr { get; set; }
+    public string Status { get; set; } = "";
+    public DateTimeOffset At { get; set; }
+}
+
 public sealed class RepoStatus
 {
     public string Repo { get; set; } = "";
@@ -145,6 +159,20 @@ public sealed class DbStore(Container config, Container commands, Container stat
     public Task MarkCommandAsync(CommandDoc cmd) => commands.UpsertItemAsync(cmd, new PartitionKey(cmd.Id));
 
     public Task PutStateAsync(StateDoc snapshot) => state.UpsertItemAsync(snapshot, new PartitionKey(snapshot.Id));
+
+    public async Task<NudgeDoc> LoadNudgesAsync()
+    {
+        try
+        {
+            return (await state.ReadItemAsync<NudgeDoc>("nudges", new PartitionKey("nudges"))).Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == HttpStatusCode.NotFound)
+        {
+            return new NudgeDoc();
+        }
+    }
+
+    public Task SaveNudgesAsync(NudgeDoc doc) => state.UpsertItemAsync(doc, new PartitionKey(doc.Id));
 
     private static ConfigDoc SeedFromPanel(string path)
     {

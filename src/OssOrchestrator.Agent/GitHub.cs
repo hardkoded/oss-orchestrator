@@ -156,7 +156,8 @@ public sealed class GitHub
 
     private static async Task<string> RunAsync(string cwd, CancellationToken ct, params string[] args)
     {
-        var psi = new ProcessStartInfo("gh") { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true };
+        var psi = new ProcessStartInfo("gh") { RedirectStandardOutput = true, RedirectStandardError = true };
+        GhEnv.Apply(psi, cwd);
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("gh did not start");
         var stdout = await p.StandardOutput.ReadToEndAsync(ct);
