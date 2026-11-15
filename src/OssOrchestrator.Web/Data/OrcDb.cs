@@ -21,7 +21,6 @@ public sealed class ConfigDoc
 {
     public string Id { get; set; } = "config";
     public int MaxTotal { get; set; } = 6;
-    public string Mode { get; set; } = "local";
     public List<RepoDoc> Repos { get; set; } = [];
 }
 

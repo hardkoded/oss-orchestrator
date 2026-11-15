@@ -1,7 +1,7 @@
 using OssOrchestrator.Agent;
 
 // Source of truth: the Cosmos database (orc/config, orc/commands, orc/state). Each pass reads config and
-// pending commands, looks at Herdr sessions and GitHub, plans, launches, and writes the state back.
+// pending commands, looks at the cloud sessions and GitHub, plans, launches, and writes the state back.
 // Dry run is the default: it plans and publishes, but does not start sessions. Set ORC_DRY_RUN=false to launch.
 var dryRun = Environment.GetEnvironmentVariable("ORC_DRY_RUN") != "false";
 var endpoint = Environment.GetEnvironmentVariable("ORC_COSMOS_ENDPOINT")
@@ -12,18 +12,12 @@ var panelRepos = Environment.GetEnvironmentVariable("ORC_PANEL_REPOS")
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "herdr-app", "orc-data", "repos.json");
 var intervalSec = int.TryParse(Environment.GetEnvironmentVariable("ORC_INTERVAL_SEC"), out var s) ? s : 120;
 
-// ORC_ONCE=true runs a single pass and exits (the Azure Container Apps Job runs it on a schedule).
-// ORC_CLOUD_ONLY=true is for that job: no Herdr, only cloud sessions, and gh is pointed at repos by name.
-var once = Environment.GetEnvironmentVariable("ORC_ONCE") == "true";
-var cloudOnly = Environment.GetEnvironmentVariable("ORC_CLOUD_ONLY") == "true";
-
 var log = Console.Out;
 var db = DbStore.Connect(endpoint, key);
 var github = new GitHub();
-var herdr = new Herdr(dryRun, log);
 var nudgeEvery = TimeSpan.FromMinutes(30);
 
-await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, once={once}, cloudOnly={cloudOnly}, every {intervalSec}s, database = source of truth)");
+await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, every {intervalSec}s, database = source of truth)");
 
 while (true)
 {
@@ -32,7 +26,7 @@ while (true)
         var config = await db.LoadConfigAsync(panelRepos);
         GhEnv.Register(config);
         // "repo#issue" -> the PR state a worker was last told about, so a red or conflicted PR is not repeated every pass.
-        // It lives in the database: the cloud job starts from nothing on every run.
+        // It lives in the database, so it survives an agent restart.
         var nudgeDoc = await db.LoadNudgesAsync();
         var nudged = nudgeDoc.Items;
         var nudgedBefore = System.Text.Json.JsonSerializer.Serialize(nudged);
@@ -42,7 +36,7 @@ while (true)
             var result = cmd.Type switch
             {
                 "unblock" => await UnblockAsync(config, cmd, dryRun, log),
-                "block_session" => await BlockSessionAsync(config, cmd, dryRun, cloudOnly ? null : herdr, log),
+                "block_session" => await BlockSessionAsync(config, cmd, dryRun, log),
                 _ => Applier.Apply(config, cmd),
             };
             await log.WriteLineAsync($"command {cmd.Type}: {result}");
@@ -77,34 +71,8 @@ while (true)
             catch (Exception e) { errors[repo.Repo] = e.Message; }
         }
 
-        var sessions = cloudOnly ? [] : await herdr.ListSessionsAsync(CancellationToken.None);
-        // A session whose issue is closed takes no slot and is not shown. Only sessions missing from the open-issue list are checked on GitHub.
         var shown = new List<SessionInfo>();
-        foreach (var sess in sessions)
-        {
-            var listed = issues.GetValueOrDefault(sess.Repo)?.Any(i => i.Number == sess.Issue) ?? false;
-            var folder = config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Folder;
-            var open = true;
-            if (!listed && folder is not null)
-            {
-                try { open = await github.IssueIsOpenAsync(folder, sess.Issue, CancellationToken.None); }
-                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read state of {sess.Repo}#{sess.Issue}: {e.Message}"); }
-            }
-            if (!open) continue;
-            var listedSession = sess;
-            // Herdr says "idle" or "done" for a worker waiting on a question too, so the screen is checked.
-            if (sess.Terminal is not null && sess.Status is "done" or "idle")
-            {
-                try
-                {
-                    if (await ScreenReader.NeedsAnswerAsync(sess.Terminal, CancellationToken.None))
-                        listedSession = sess with { Status = "blocked" };
-                }
-                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read the screen of {sess.Repo}#{sess.Issue}: {e.Message}"); }
-            }
-            shown.Add(listedSession);
-        }
-        // Cloud sessions stay listed while their issue is open and has no finished PR. They take a slot like a local one.
+        // Cloud sessions stay listed while their issue is open and has no finished PR. They take a slot each.
         var cloudChanged = false;
         foreach (var repo in config.Repos)
         {
@@ -128,7 +96,7 @@ while (true)
                 }
                 // A cloud worker has no terminal to read, so it reports a question through the needs-answer label.
                 var waiting = needsAnswer.GetValueOrDefault(repo.Repo)?.Contains(number) ?? false;
-                shown.Add(new SessionInfo(repo.Repo, number, waiting ? "blocked" : "cloud", null, doc.Id, doc.Url));
+                shown.Add(new SessionInfo(repo.Repo, number, waiting ? "blocked" : "cloud", doc.Id, doc.Url));
             }
         }
         if (cloudChanged) await db.SaveConfigAsync(config);
@@ -146,7 +114,7 @@ while (true)
             foreach (var number in labelled)
             {
                 if (openPrIssues.Contains(number) || !doneIssues.ContainsKey(number)) continue;
-                if (sessions.Any(s => s.Repo == repo.Repo && s.Issue == number)) continue;
+                if (shown.Any(s => s.Repo == repo.Repo && s.Issue == number)) continue;
                 if (dryRun)
                 {
                     await log.WriteLineAsync($"{DateTime.Now:T} dry run: would remove in-progress from {repo.Repo}#{number}");
@@ -177,7 +145,6 @@ while (true)
         foreach (var launch in plan)
         {
             var repo = config.Repos.First(r => r.Repo == launch.Repo);
-            var task = Brief.For(repo.Repo, launch.Issue);
             if (!dryRun)
             {
                 try
@@ -189,30 +156,23 @@ while (true)
                     await log.WriteLineAsync($"{DateTime.Now:T} could not sync the reference fork for {repo.Repo}: {e.Message}");
                 }
             }
-            if (config.Mode == "cloud" || cloudOnly)
+            if (dryRun)
             {
-                if (dryRun)
-                {
-                    await log.WriteLineAsync($"{DateTime.Now:T} [dry-run] would launch {repo.Repo}#{launch.Issue} in the cloud");
-                }
-                else
-                {
-                    try
-                    {
-                        var cloud = await CloudSessions.LaunchRoutineAsync(repo.Repo, launch.Issue, CancellationToken.None);
-                        repo.Cloud[launch.Issue.ToString()] = cloud;
-                        await log.WriteLineAsync($"{DateTime.Now:T} started cloud session for {repo.Repo}#{launch.Issue}: {cloud.Url}");
-                    }
-                    catch (Exception e)
-                    {
-                        await log.WriteLineAsync($"{DateTime.Now:T} could not start a cloud session for {repo.Repo}#{launch.Issue}: {e.Message}");
-                        continue;
-                    }
-                }
+                await log.WriteLineAsync($"{DateTime.Now:T} [dry-run] would launch {repo.Repo}#{launch.Issue} in the cloud");
             }
             else
             {
-                await herdr.LaunchAsync(repo.Repo, repo.Folder, launch.Issue, task, CancellationToken.None);
+                try
+                {
+                    var cloud = await CloudSessions.LaunchRoutineAsync(repo.Repo, launch.Issue, CancellationToken.None);
+                    repo.Cloud[launch.Issue.ToString()] = cloud;
+                    await log.WriteLineAsync($"{DateTime.Now:T} started cloud session for {repo.Repo}#{launch.Issue}: {cloud.Url}");
+                }
+                catch (Exception e)
+                {
+                    await log.WriteLineAsync($"{DateTime.Now:T} could not start a cloud session for {repo.Repo}#{launch.Issue}: {e.Message}");
+                    continue;
+                }
             }
             if (!dryRun)
             {
@@ -231,18 +191,16 @@ while (true)
             }
         }
 
-        // A worker on a PR that is red or conflicted is told so: a local one by typing into its terminal while it is idle,
-        // a cloud one by sending a message to its session.
+        // A worker on a PR that is red or conflicted is told so, by a message to its cloud session.
         foreach (var sess in shown)
         {
             var nudgeKey = $"{sess.Repo}#{sess.Issue}";
             var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
-            if (pr is null || pr.Status is not ("failed" or "conflicted") || (sess.Terminal is null && sess.CloudSessionId is null))
+            if (pr is null || pr.Status is not ("failed" or "conflicted"))
             {
                 nudged.Remove(nudgeKey);
                 continue;
             }
-            if (sess.Terminal is not null && sess.Status is not ("idle" or "done")) continue;
             if (nudged.TryGetValue(nudgeKey, out var last) && last.Pr == pr.Number && last.Status == pr.Status
                 && DateTimeOffset.UtcNow - last.At < nudgeEvery) continue;
             var text = pr.Status == "conflicted"
@@ -250,11 +208,9 @@ while (true)
                 : $"The build is red on PR #{pr.Number}. Fix the failing checks and push.";
             try
             {
-                var sent = sess.Terminal is not null
-                    ? await herdr.SendAsync(sess.Terminal, text, CancellationToken.None)
-                    : dryRun
-                        ? await DryRunLogAsync(log, nudgeKey, text)
-                        : await CloudSessions.SendAsync(sess.CloudSessionId!, text, CancellationToken.None);
+                var sent = dryRun
+                    ? await DryRunLogAsync(log, nudgeKey, text)
+                    : await CloudSessions.SendAsync(sess.CloudSessionId, text, CancellationToken.None);
                 if (sent)
                 {
                     nudged[nudgeKey] = new NudgeEntry { Pr = pr.Number, Status = pr.Status, At = DateTimeOffset.UtcNow };
@@ -273,7 +229,6 @@ while (true)
         {
             At = DateTimeOffset.UtcNow,
             DryRun = dryRun,
-            // The dashboard counts the sessions it lists. The planner still counts every open tab against the limit.
             Running = shown.Count,
             MaxTotal = config.MaxTotal,
             Planned = plan.Select(p => $"{p.Repo}#{p.Issue}").ToList(),
@@ -329,18 +284,16 @@ while (true)
         await log.WriteLineAsync($"{DateTime.Now:T} pass failed: {e.Message}");
     }
 
-    if (once) break;
     await WaitForNextPassAsync(db, intervalSec, log);
 }
 
 // Blocks an issue and releases its session. The blocked label is set first: if that fails, the session keeps running.
-// herdr is null in the cloud job, which has no local terminals to close.
-static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bool dryRun, Herdr? herdr, TextWriter log)
+static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bool dryRun, TextWriter log)
 {
     var repo = config.Repos.FirstOrDefault(r => r.Repo == cmd.Repo);
     if (repo is null) return $"unknown repo {cmd.Repo}";
     if (cmd.Issue is not int n) return "missing issue number";
-    if (dryRun) return $"dry run: would block {repo.Repo} #{n} and close its session";
+    if (dryRun) return $"dry run: would block {repo.Repo} #{n} and stop tracking its session";
     try
     {
         await IssueLabels.MarkBlockedAsync(repo.Folder, n, CancellationToken.None);
@@ -350,20 +303,11 @@ static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bo
         await log.WriteLineAsync($"{DateTime.Now:T} could not block {repo.Repo}#{n}: {e.Message}");
         return $"could not block {repo.Repo} #{n}: {e.Message}";
     }
-    try
-    {
-        repo.Cloud.Remove(n.ToString());   // a cloud session is no longer tracked; it keeps running in claude.ai
-        if (herdr is not null) await herdr.CloseSessionAsync(repo.Repo, n, CancellationToken.None);
-        // The session is released, so the issue is no longer in progress.
-        try { await IssueLabels.RemoveInProgressAsync(repo.Folder, n, CancellationToken.None); }
-        catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not clear in-progress on {repo.Repo}#{n}: {e.Message}"); }
-        return $"blocked {repo.Repo} #{n} and closed its session";
-    }
-    catch (Exception e)
-    {
-        await log.WriteLineAsync($"{DateTime.Now:T} blocked {repo.Repo}#{n} but could not close its session: {e.Message}");
-        return $"blocked {repo.Repo} #{n}, but its session did not close: {e.Message}";
-    }
+    repo.Cloud.Remove(n.ToString());   // a cloud session is no longer tracked; it keeps running in claude.ai
+    // The session is released, so the issue is no longer in progress.
+    try { await IssueLabels.RemoveInProgressAsync(repo.Folder, n, CancellationToken.None); }
+    catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not clear in-progress on {repo.Repo}#{n}: {e.Message}"); }
+    return $"blocked {repo.Repo} #{n} and stopped tracking its session";
 }
 
 // Waits between passes, but wakes early when a dashboard Refresh is queued, so the next pass starts right away.
