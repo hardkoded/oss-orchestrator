@@ -105,59 +105,50 @@ while (true)
 
         // Free the in-progress label when the issue's PR is merged or closed. Only when this pass read both the open
         // and the finished PRs of the repo, so a failed lookup never clears a label by mistake, and never while a session
-        // is still on the issue.
+        // is still on the issue. A closed issue is done too, whatever closed it, so it loses the label as well.
+        var toFree = new List<(RepoDoc Repo, int Number, string Reason)>();
         foreach (var repo in config.Repos)
         {
-            if (!inProgress.TryGetValue(repo.Repo, out var labelled) || !prs.TryGetValue(repo.Repo, out var openPrs)
-                || !finished.TryGetValue(repo.Repo, out var doneIssues)) continue;
-            var openPrIssues = openPrs.Where(p => p.Issue is not null).Select(p => p.Issue!.Value).ToHashSet();
-            foreach (var number in labelled)
+            if (inProgress.TryGetValue(repo.Repo, out var labelled) && prs.TryGetValue(repo.Repo, out var openPrs)
+                && finished.TryGetValue(repo.Repo, out var doneIssues))
             {
-                if (openPrIssues.Contains(number) || !doneIssues.ContainsKey(number)) continue;
-                if (shown.Any(s => s.Repo == repo.Repo && s.Issue == number)) continue;
-                if (dryRun)
+                var openPrIssues = openPrs.Where(p => p.Issue is not null).Select(p => p.Issue!.Value).ToHashSet();
+                foreach (var number in labelled)
                 {
-                    await log.WriteLineAsync($"{DateTime.Now:T} dry run: would remove in-progress from {repo.Repo}#{number}");
-                    continue;
-                }
-                try
-                {
-                    await IssueLabels.RemoveInProgressAsync(repo.Folder, number, CancellationToken.None);
-                    await log.WriteLineAsync($"{DateTime.Now:T} removed in-progress from {repo.Repo}#{number} (PR finished)");
-                }
-                catch (Exception e)
-                {
-                    await log.WriteLineAsync($"{DateTime.Now:T} could not remove in-progress from {repo.Repo}#{number}: {e.Message}");
+                    if (openPrIssues.Contains(number) || !doneIssues.ContainsKey(number)) continue;
+                    if (shown.Any(s => s.Repo == repo.Repo && s.Issue == number)) continue;
+                    toFree.Add((repo, number, "PR finished"));
                 }
             }
-        }
-
-        // A closed issue is done, whatever closed it, so it must not keep the in-progress label.
-        foreach (var repo in config.Repos)
-        {
-            IReadOnlySet<int> closedLabelled;
-            try { closedLabelled = await github.IssuesWithLabelAsync(repo.Folder, IssueLabels.InProgress, CancellationToken.None, "closed"); }
+            try
+            {
+                foreach (var number in await github.ClosedInProgressIssuesAsync(repo.Folder, CancellationToken.None))
+                {
+                    if (toFree.Any(f => f.Repo == repo && f.Number == number)) continue;
+                    if (shown.Any(s => s.Repo == repo.Repo && s.Issue == number)) continue;
+                    toFree.Add((repo, number, "issue closed"));
+                }
+            }
             catch (Exception e)
             {
                 await log.WriteLineAsync($"{DateTime.Now:T} could not read closed in-progress issues of {repo.Repo}: {e.Message}");
+            }
+        }
+        foreach (var (repo, number, reason) in toFree)
+        {
+            if (dryRun)
+            {
+                await log.WriteLineAsync($"{DateTime.Now:T} dry run: would remove in-progress from {repo.Repo}#{number} ({reason})");
                 continue;
             }
-            foreach (var number in closedLabelled)
+            try
             {
-                if (dryRun)
-                {
-                    await log.WriteLineAsync($"{DateTime.Now:T} dry run: would remove in-progress from closed {repo.Repo}#{number}");
-                    continue;
-                }
-                try
-                {
-                    await IssueLabels.RemoveInProgressAsync(repo.Folder, number, CancellationToken.None);
-                    await log.WriteLineAsync($"{DateTime.Now:T} removed in-progress from {repo.Repo}#{number} (issue closed)");
-                }
-                catch (Exception e)
-                {
-                    await log.WriteLineAsync($"{DateTime.Now:T} could not remove in-progress from {repo.Repo}#{number}: {e.Message}");
-                }
+                await IssueLabels.RemoveInProgressAsync(repo.Folder, number, CancellationToken.None);
+                await log.WriteLineAsync($"{DateTime.Now:T} removed in-progress from {repo.Repo}#{number} ({reason})");
+            }
+            catch (Exception e)
+            {
+                await log.WriteLineAsync($"{DateTime.Now:T} could not remove in-progress from {repo.Repo}#{number}: {e.Message}");
             }
         }
 
