@@ -142,7 +142,7 @@ public sealed class DbStore(Container config, Container commands, Container stat
         }
     }
 
-    public Task SaveConfigAsync(ConfigDoc doc) => config.UpsertItemAsync(doc, new PartitionKey(doc.Id));
+    public Task SaveConfigAsync(ConfigDoc doc) => Retry.WriteAsync(() => config.UpsertItemAsync(doc, new PartitionKey(doc.Id)));
 
     public async Task<List<CommandDoc>> PendingCommandsAsync()
     {
@@ -194,5 +194,25 @@ public sealed class DbStore(Container config, Container commands, Container stat
             seeded.Repos.Add(repo);
         }
         return seeded;
+    }
+}
+
+/// <summary>Retries an idempotent write after a transient Cosmos failure. The SDK does not retry a write that timed out.</summary>
+public static class Retry
+{
+    public static async Task WriteAsync(Func<Task> write, int attempts = 3, int delayMs = 1000)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await write();
+                return;
+            }
+            catch (CosmosException e) when (attempt < attempts && e.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.ServiceUnavailable)
+            {
+                await Task.Delay(delayMs * attempt);
+            }
+        }
     }
 }

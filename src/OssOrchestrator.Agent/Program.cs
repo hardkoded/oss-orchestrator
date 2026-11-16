@@ -176,10 +176,11 @@ while (true)
             }
             if (!dryRun)
             {
-                // Record the launch first: the session is already running, so the issue must not be planned again
-                // even if the label step fails. The label is then best effort and logged when it fails.
+                // The session is already running, so the issue must not be planned again. The in-progress label is what
+                // stops that, so a failed save is logged and never skips the label.
                 repo.Launched[launch.Issue.ToString()] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                await db.SaveConfigAsync(config);
+                try { await db.SaveConfigAsync(config); }
+                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} launched #{launch.Issue} but could not save it: {e.Message}"); }
                 try
                 {
                     await IssueLabels.MarkInProgressAsync(repo.Folder, launch.Issue, CancellationToken.None);
@@ -216,6 +217,13 @@ while (true)
                     nudged[nudgeKey] = new NudgeEntry { Pr = pr.Number, Status = pr.Status, At = DateTimeOffset.UtcNow };
                     await log.WriteLineAsync($"{DateTime.Now:T} told {nudgeKey} its PR is {pr.Status}");
                 }
+            }
+            catch (Exception e) when (e.Message.Contains("Session not found"))
+            {
+                // The session is gone, so stop tracking it. This frees its slot and ends the repeated error.
+                config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Cloud.Remove(sess.Issue.ToString());
+                await db.SaveConfigAsync(config);
+                await log.WriteLineAsync($"{DateTime.Now:T} {nudgeKey}: cloud session {sess.CloudSessionId} no longer exists, stopped tracking it");
             }
             catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not message {nudgeKey}: {e.Message}"); }
         }
