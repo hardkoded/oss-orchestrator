@@ -209,7 +209,7 @@ public static class Retry
                 await write();
                 return;
             }
-            catch (CosmosException e) when (attempt < attempts && e.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.ServiceUnavailable)
+            catch (CosmosException e) when (attempt < attempts && e.StatusCode is (HttpStatusCode.RequestTimeout or HttpStatusCode.ServiceUnavailable))
             {
                 await Task.Delay(delayMs * attempt);
             }

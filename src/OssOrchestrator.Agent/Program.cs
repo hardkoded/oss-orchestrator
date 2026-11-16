@@ -142,6 +142,7 @@ while (true)
                 .ToDictionary(x => x.Item1, x => x.Value),
             NowMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
 
+        var unsaved = false;
         foreach (var launch in plan)
         {
             var repo = config.Repos.First(r => r.Repo == launch.Repo);
@@ -177,10 +178,14 @@ while (true)
             if (!dryRun)
             {
                 // The session is already running, so the issue must not be planned again. The in-progress label is what
-                // stops that, so a failed save is logged and never skips the label.
+                // stops that, so a failed save never skips the label. It is tried again at the end of the pass.
                 repo.Launched[launch.Issue.ToString()] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                try { await db.SaveConfigAsync(config); }
-                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} launched #{launch.Issue} but could not save it: {e.Message}"); }
+                try { await db.SaveConfigAsync(config); unsaved = false; }
+                catch (Exception e)
+                {
+                    unsaved = true;
+                    await log.WriteLineAsync($"{DateTime.Now:T} launched {repo.Repo}#{launch.Issue} ({repo.Cloud.GetValueOrDefault(launch.Issue.ToString())?.Url}) but could not save it: {e.Message}");
+                }
                 try
                 {
                     await IssueLabels.MarkInProgressAsync(repo.Folder, launch.Issue, CancellationToken.None);
@@ -218,14 +223,20 @@ while (true)
                     await log.WriteLineAsync($"{DateTime.Now:T} told {nudgeKey} its PR is {pr.Status}");
                 }
             }
-            catch (Exception e) when (e.Message.Contains("Session not found"))
+            catch (CloudSessionGoneException)
             {
                 // The session is gone, so stop tracking it. This frees its slot and ends the repeated error.
                 config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Cloud.Remove(sess.Issue.ToString());
-                await db.SaveConfigAsync(config);
+                nudged.Remove(nudgeKey);
+                unsaved = true;
                 await log.WriteLineAsync($"{DateTime.Now:T} {nudgeKey}: cloud session {sess.CloudSessionId} no longer exists, stopped tracking it");
             }
             catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not message {nudgeKey}: {e.Message}"); }
+        }
+        if (unsaved)
+        {
+            try { await db.SaveConfigAsync(config); }
+            catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not save the config: {e.Message}"); }
         }
         if (System.Text.Json.JsonSerializer.Serialize(nudged) != nudgedBefore)
         {

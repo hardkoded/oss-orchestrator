@@ -58,7 +58,13 @@ public static class CloudSessions
         await p.StandardOutput.ReadToEndAsync(ct);
         var stderr = await p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
-        if (p.ExitCode != 0) throw new InvalidOperationException(stderr.Trim());
-        return true;
+        if (p.ExitCode == 0) return true;
+        var error = stderr.Trim();
+        throw error.Contains("Session not found", StringComparison.OrdinalIgnoreCase)
+            ? new CloudSessionGoneException(error)
+            : new InvalidOperationException(error);
     }
 }
+
+/// <summary>The cloud session no longer exists, so a message cannot reach it.</summary>
+public sealed class CloudSessionGoneException(string message) : Exception(message);
