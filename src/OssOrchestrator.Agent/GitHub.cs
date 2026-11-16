@@ -96,10 +96,10 @@ public sealed class GitHub
         return doc.RootElement.EnumerateArray().Select(e => e.GetProperty("number").GetInt32()).ToHashSet();
     }
 
-    /// <summary>Open issues carrying the given label. A label that does not exist yet has no issues, so this does not fail for that reason.</summary>
-    public async Task<IReadOnlySet<int>> IssuesWithLabelAsync(string folder, string label, CancellationToken ct)
+    /// <summary>Issues in the given state ("open" or "closed") carrying the given label. A label that does not exist yet has no issues, so this does not fail for that reason.</summary>
+    public async Task<IReadOnlySet<int>> IssuesWithLabelAsync(string folder, string label, CancellationToken ct, string state = "open")
     {
-        var json = await RunAsync(folder, ct, "issue", "list", "--state", "open", "--label", label,
+        var json = await RunAsync(folder, ct, "issue", "list", "--state", state, "--label", label,
             "--limit", "300", "--json", "number");
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.EnumerateArray().Select(e => e.GetProperty("number").GetInt32()).ToHashSet();

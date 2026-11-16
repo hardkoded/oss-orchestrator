@@ -132,6 +132,35 @@ while (true)
             }
         }
 
+        // A closed issue is done, whatever closed it, so it must not keep the in-progress label.
+        foreach (var repo in config.Repos)
+        {
+            IReadOnlySet<int> closedLabelled;
+            try { closedLabelled = await github.IssuesWithLabelAsync(repo.Folder, IssueLabels.InProgress, CancellationToken.None, "closed"); }
+            catch (Exception e)
+            {
+                await log.WriteLineAsync($"{DateTime.Now:T} could not read closed in-progress issues of {repo.Repo}: {e.Message}");
+                continue;
+            }
+            foreach (var number in closedLabelled)
+            {
+                if (dryRun)
+                {
+                    await log.WriteLineAsync($"{DateTime.Now:T} dry run: would remove in-progress from closed {repo.Repo}#{number}");
+                    continue;
+                }
+                try
+                {
+                    await IssueLabels.RemoveInProgressAsync(repo.Folder, number, CancellationToken.None);
+                    await log.WriteLineAsync($"{DateTime.Now:T} removed in-progress from {repo.Repo}#{number} (issue closed)");
+                }
+                catch (Exception e)
+                {
+                    await log.WriteLineAsync($"{DateTime.Now:T} could not remove in-progress from {repo.Repo}#{number}: {e.Message}");
+                }
+            }
+        }
+
         var plan = Planner.Plan(new PlanInput(
             MaxTotal: config.MaxTotal,
             Running: running,
