@@ -79,6 +79,17 @@ while (true)
             if (!issues.TryGetValue(repo.Repo, out var repoIssues)) continue;
             var listed = repoIssues.Select(i => i.Number).ToHashSet();
             var done = finished.GetValueOrDefault(repo.Repo);
+            // Recovery: an in-progress issue with an open PR but no tracked session gets its session back from the PR
+            // description, where the worker's own link to its session is.
+            foreach (var pr in prs.GetValueOrDefault(repo.Repo) ?? [])
+            {
+                if (pr.Issue is not int n || repo.Cloud.ContainsKey(n.ToString()) || !listed.Contains(n) || (done?.ContainsKey(n) ?? false)) continue;
+                if (!(inProgress.GetValueOrDefault(repo.Repo)?.Contains(n) ?? false)) continue;
+                if (GitHub.SessionFromPrBody(pr.Body) is not string id) continue;
+                repo.Cloud[n.ToString()] = new CloudDoc { Id = id, Url = $"https://claude.ai/code/{id}", CreatedAt = DateTimeOffset.UtcNow };
+                cloudChanged = true;
+                await log.WriteLineAsync($"{DateTime.Now:T} {repo.Repo}#{n}: picked its session {id} back up from PR #{pr.Number}");
+            }
             foreach (var (issueKey, doc) in repo.Cloud.ToList())
             {
                 var number = int.Parse(issueKey);
@@ -245,11 +256,10 @@ while (true)
             }
             catch (CloudSessionGoneException)
             {
-                // The session is gone, so stop tracking it. This frees its slot and ends the repeated error.
-                config.Repos.FirstOrDefault(r => r.Repo == sess.Repo)?.Cloud.Remove(sess.Issue.ToString());
-                nudged.Remove(nudgeKey);
-                unsaved = true;
-                await log.WriteLineAsync($"{DateTime.Now:T} {nudgeKey}: cloud session {sess.CloudSessionId} no longer exists, stopped tracking it");
+                // The CLI cannot reach the session, but it may have finished its work and still own an open PR, so keep it
+                // listed. Remember the attempt, so the message is retried only after the nudge interval, not every pass.
+                nudged[nudgeKey] = new NudgeEntry { Pr = pr.Number, Status = pr.Status, At = DateTimeOffset.UtcNow };
+                await log.WriteLineAsync($"{DateTime.Now:T} {nudgeKey}: cloud session {sess.CloudSessionId} cannot be reached, will retry later");
             }
             catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not message {nudgeKey}: {e.Message}"); }
         }
