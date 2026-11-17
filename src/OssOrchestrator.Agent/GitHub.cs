@@ -167,6 +167,38 @@ public sealed class GitHub
         return m.Count == 0 ? null : "cse_" + m[^1].Groups[1].Value;
     }
 
+    /// <summary>
+    /// When the newest comment or review by someone other than <paramref name="own"/> was written on the PR, or null.
+    /// Replies to review threads belong to a review, so a review by someone else covers inline comments too.
+    /// </summary>
+    public async Task<DateTimeOffset?> LatestCommentAsync(string folder, int pr, ISet<string> own, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "pr", "view", pr.ToString(), "--json", "comments,reviews");
+        using var doc = JsonDocument.Parse(json);
+        return LatestOutsideComment(doc.RootElement, own);
+    }
+
+    public static DateTimeOffset? LatestOutsideComment(JsonElement pr, ISet<string> own)
+    {
+        DateTimeOffset? latest = null;
+        foreach (var (list, stamp) in new[] { ("comments", "createdAt"), ("reviews", "submittedAt") })
+        {
+            if (!pr.TryGetProperty(list, out var items) || items.ValueKind != JsonValueKind.Array) continue;
+            foreach (var item in items.EnumerateArray())
+            {
+                var login = item.TryGetProperty("author", out var a) && a.TryGetProperty("login", out var l) ? l.GetString() : null;
+                if (login is null || own.Contains(login)) continue;
+                if (!item.TryGetProperty(stamp, out var t) || !t.TryGetDateTimeOffset(out var at)) continue;
+                if (latest is null || at > latest) latest = at;
+            }
+        }
+        return latest;
+    }
+
+    /// <summary>The login the gh CLI is signed in as.</summary>
+    public async Task<string> CurrentLoginAsync(CancellationToken ct) =>
+        (await RunAsync(".", ct, "api", "user", "--jq", ".login")).Trim();
+
     /// <summary>The issue number in a branch name such as fix/1531-short-name, or null.</summary>
     public static int? IssueFromBranch(string branch)
     {

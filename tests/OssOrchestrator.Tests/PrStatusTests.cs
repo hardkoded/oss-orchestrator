@@ -70,3 +70,27 @@ public class SessionFromPrBodyTests
     [Fact]
     public void Is_null_without_a_link() => Assert.Null(OssOrchestrator.Agent.GitHub.SessionFromPrBody("Closes #1"));
 }
+
+public class PrCommentTests
+{
+    private static JsonElement Pr(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    private static readonly HashSet<string> Own = new(StringComparer.OrdinalIgnoreCase) { "kblok" };
+
+    [Fact]
+    public void The_workers_own_comments_and_reviews_are_ignored()
+    {
+        var pr = Pr("""{"comments":[{"author":{"login":"kblok"},"createdAt":"2026-11-17T10:00:00Z"}],"reviews":[{"author":{"login":"KBlok"},"submittedAt":"2026-11-17T11:00:00Z"}]}""");
+        Assert.Null(GitHub.LatestOutsideComment(pr, Own));
+    }
+
+    [Fact]
+    public void The_newest_comment_or_review_by_someone_else_wins()
+    {
+        var pr = Pr("""{"comments":[{"author":{"login":"alice"},"createdAt":"2026-11-17T10:00:00Z"}],"reviews":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-11-17T12:00:00Z"},{"author":{"login":"kblok"},"submittedAt":"2026-11-17T13:00:00Z"}]}""");
+        Assert.Equal(DateTimeOffset.Parse("2026-11-17T12:00:00Z"), GitHub.LatestOutsideComment(pr, Own));
+    }
+
+    [Fact]
+    public void A_PR_without_comments_has_none() =>
+        Assert.Null(GitHub.LatestOutsideComment(Pr("""{"comments":[],"reviews":[]}"""), Own));
+}

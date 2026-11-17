@@ -61,6 +61,8 @@ public sealed class NudgeDoc
 {
     public string Id { get; set; } = "nudges";
     public Dictionary<string, NudgeEntry> Items { get; set; } = [];
+    /// <summary>"repo#issue" -> the newest comment by someone else that its worker was already told about.</summary>
+    public Dictionary<string, DateTimeOffset> Comments { get; set; } = [];
 }
 
 public sealed class NudgeEntry
