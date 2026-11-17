@@ -18,7 +18,7 @@ Orchestrates Claude Code sessions, one per GitHub issue, with a dashboard.
 ## Webhook setup
 
 1. Create the `events` container in database `orc`: partition key `/repo`, default TTL 7 days (`az cosmosdb sql container create -a <account> -g <group> -d orc -n events -p /repo --ttl 604800`). The web app identity needs the Data Contributor role on the account; if it has that at account scope, nothing more is needed.
-2. In App Service Authentication, exclude `/webhooks/github` (and `/health`) from the login requirement. GitHub cannot sign in. The endpoint checks the HMAC signature itself.
+2. Login is handled inside the app (App Service Authentication is off), and `/webhooks/github` is anonymous: it checks the HMAC signature itself. If you ever turn App Service Authentication on, exclude that path, because GitHub cannot sign in.
 3. Set the app setting `GitHub__WebhookSecret` to a long random value.
 4. Register the hook on each repo: `GITHUB_WEBHOOK_SECRET=... scripts/register-webhooks.sh https://<app>.azurewebsites.net owner/repo ...`
 
