@@ -258,12 +258,12 @@ while (true)
                 if (await SendToSessionAsync(log, dryRun, nudgeKey, sess.CloudSessionId, text))
                     nudged[nudgeKey] = new NudgeEntry { Pr = pr.Number, Status = pr.Status, At = DateTimeOffset.UtcNow };
             }
-            catch (CloudSessionGoneException)
+            catch (CloudSessionGoneException gone)
             {
                 // The CLI cannot reach the session, but it may have finished its work and still own an open PR, so keep it
                 // listed. Remember the attempt, so the message is retried only after the nudge interval, not every pass.
                 nudged[nudgeKey] = new NudgeEntry { Pr = pr.Number, Status = pr.Status, At = DateTimeOffset.UtcNow };
-                await log.WriteLineAsync($"{DateTime.Now:T} {nudgeKey}: cloud session {sess.CloudSessionId} cannot be reached, will retry later");
+                await LogSessionGoneAsync(log, nudgeKey, sess.CloudSessionId, gone);
             }
             catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not message {nudgeKey}: {e.Message}"); }
         }
@@ -306,10 +306,10 @@ while (true)
                         commentTried.Remove(commentKey);
                     }
                 }
-                catch (CloudSessionGoneException)
+                catch (CloudSessionGoneException gone)
                 {
                     commentTried[commentKey] = DateTimeOffset.UtcNow;
-                    await log.WriteLineAsync($"{DateTime.Now:T} {commentKey}: cloud session {sess.CloudSessionId} cannot be reached, will retry later");
+                    await LogSessionGoneAsync(log, commentKey, sess.CloudSessionId, gone);
                 }
                 catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not check the comments of {commentKey}: {e.Message}"); }
             }
@@ -481,6 +481,14 @@ static DateTimeOffset? StartedAt(ConfigDoc config, SessionInfo sess)
     var key = sess.Issue.ToString();
     if (repo.Cloud.TryGetValue(key, out var cloud) && cloud.CreatedAt != default) return cloud.CreatedAt;
     return repo.Launched.TryGetValue(key, out var ms) ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+}
+
+// The CLI's own words say why a session is "gone", so they go in the log, on one line and capped.
+static Task LogSessionGoneAsync(TextWriter log, string key, string sessionId, CloudSessionGoneException gone)
+{
+    var said = string.Join(' ', gone.Message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    if (said.Length > 300) said = said[..300] + "...";
+    return log.WriteLineAsync($"{DateTime.Now:T} {key}: cloud session {sessionId} cannot be reached, will retry later. The claude CLI said: {said}");
 }
 
 // Every message to a worker goes through here, so the log shows what was said to which session. A failure is not caught:
