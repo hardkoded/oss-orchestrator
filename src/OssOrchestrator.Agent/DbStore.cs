@@ -70,6 +70,19 @@ public sealed class NudgeEntry
     public DateTimeOffset At { get; set; }
 }
 
+/// <summary>A GitHub event the web app's webhook recorded (see OrcDb.EventDoc in the web project). Keep them in sync.</summary>
+public sealed class EventDoc
+{
+    public string Repo { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string? Action { get; set; }
+    public int? Number { get; set; }
+
+    /// <summary>"owner/repo type action #number", for the log.</summary>
+    public override string ToString() =>
+        string.Join(' ', new[] { Repo, Type, Action, Number is int n ? $"#{n}" : null }.Where(x => !string.IsNullOrEmpty(x)));
+}
+
 /// <summary>Where the agent stopped reading the events change feed, so a restart neither replays nor loses events.</summary>
 public sealed class FeedDoc
 {
@@ -195,19 +208,19 @@ public sealed class DbStore(Container config, Container commands, Container stat
         Retry.WriteAsync(() => state.UpsertItemAsync(new FeedDoc { Token = token }, new PartitionKey("feed")));
 
     /// <summary>Reads what the webhook recorded since <paramref name="token"/>. With no token, starts from now.</summary>
-    public async Task<(int Count, string? Token)> ReadEventsAsync(string? token)
+    public async Task<(List<EventDoc> Events, string? Token)> ReadEventsAsync(string? token)
     {
         var start = token is null ? ChangeFeedStartFrom.Now() : ChangeFeedStartFrom.ContinuationToken(token);
-        using var feed = events.GetChangeFeedIterator<JsonElement>(start, ChangeFeedMode.LatestVersion);
-        var count = 0;
+        using var feed = events.GetChangeFeedIterator<EventDoc>(start, ChangeFeedMode.LatestVersion);
+        var seen = new List<EventDoc>();
         while (feed.HasMoreResults)
         {
             var page = await feed.ReadNextAsync();
             token = page.ContinuationToken;
             if (page.StatusCode == HttpStatusCode.NotModified) break;
-            count += page.Count;
+            seen.AddRange(page);
         }
-        return (count, token);
+        return (seen, token);
     }
 
     private static ConfigDoc SeedFromPanel(string path)

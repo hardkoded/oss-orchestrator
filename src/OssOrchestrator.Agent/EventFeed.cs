@@ -15,21 +15,21 @@ public sealed class EventFeed(DbStore db, TextWriter log)
     {
         _token = await db.LoadFeedTokenAsync();
         if (_token is not null) return;
-        (_, _token) = await db.ReadEventsAsync(null);
+        _token = (await db.ReadEventsAsync(null)).Token;
         await db.SaveFeedTokenAsync(_token);
     }
 
-    /// <summary>How many events arrived since the last call.</summary>
-    public async Task<int> NewEventsAsync()
+    /// <summary>The events that arrived since the last call.</summary>
+    public async Task<IReadOnlyList<EventDoc>> NewEventsAsync()
     {
-        var (count, token) = await db.ReadEventsAsync(_token);
+        var (events, token) = await db.ReadEventsAsync(_token);
         _token = token;
         // A failed save must not hide the wake-up: the worst case is that a restart replays these events.
-        if (count > 0)
+        if (events.Count > 0)
         {
             try { await db.SaveFeedTokenAsync(token); }
             catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not save the event position: {e.Message}"); }
         }
-        return count;
+        return events;
     }
 }

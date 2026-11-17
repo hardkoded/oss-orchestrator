@@ -389,9 +389,11 @@ static async Task WaitForNextPassAsync(DbStore db, EventFeed feed, int seconds, 
         try
         {
             var events = await feed.NewEventsAsync();
-            if (events > 0)
+            if (events.Count > 0)
             {
-                await log.WriteLineAsync($"{DateTime.Now:T} {events} GitHub event(s): running a pass now");
+                var shown = events.Select(e => e.ToString()).Distinct().ToList();
+                var more = shown.Count > 5 ? $" +{shown.Count - 5} more" : "";
+                await log.WriteLineAsync($"{DateTime.Now:T} {events.Count} GitHub event(s): {string.Join("; ", shown.Take(5))}{more}. Running a pass now");
                 return;
             }
         }
