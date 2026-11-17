@@ -95,7 +95,20 @@ public sealed class IssueStatus
     public bool Ignored { get; set; }
 }
 
-public sealed class OrcDb(Container config, Container commands, Container state)
+/// <summary>A GitHub event worth waking the agent for. The agent reads these from the change feed. Expires after 7 days.</summary>
+public sealed class EventDoc
+{
+    /// <summary>The GitHub delivery id, so a redelivery overwrites instead of duplicating.</summary>
+    public string Id { get; set; } = "";
+    public string Repo { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string? Action { get; set; }
+    public int? Number { get; set; }
+    public DateTimeOffset At { get; set; }
+    public int Ttl { get; set; } = 7 * 24 * 60 * 60;
+}
+
+public sealed class OrcDb(Container config, Container commands, Container state, Container events)
 {
     /// <summary>Uses the app's own identity (managed identity in Azure, your az login locally). No keys.</summary>
     public static OrcDb Create(string endpoint)
@@ -105,7 +118,7 @@ public sealed class OrcDb(Container config, Container commands, Container state)
             UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase },
         });
         var db = client.GetDatabase("orc");
-        return new OrcDb(db.GetContainer("config"), db.GetContainer("commands"), db.GetContainer("state"));
+        return new OrcDb(db.GetContainer("config"), db.GetContainer("commands"), db.GetContainer("state"), db.GetContainer("events"));
     }
 
     public async Task<StateDoc?> ReadStateAsync() => await ReadOrNull<StateDoc>(state, "current");
@@ -120,6 +133,8 @@ public sealed class OrcDb(Container config, Container commands, Container state)
         while (query.HasMoreResults) result.AddRange(await query.ReadNextAsync());
         return result;
     }
+
+    public Task PutEventAsync(EventDoc doc, CancellationToken ct = default) => events.UpsertItemAsync(doc, new PartitionKey(doc.Repo), cancellationToken: ct);
 
     public Task QueueAsync(CommandDoc cmd) => commands.UpsertItemAsync(cmd, new PartitionKey(cmd.Id));
 

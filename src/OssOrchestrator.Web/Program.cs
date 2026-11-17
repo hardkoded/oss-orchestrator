@@ -36,6 +36,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+app.MapGitHubWebhook();
 app.MapRazorPages();
 
 app.Run();

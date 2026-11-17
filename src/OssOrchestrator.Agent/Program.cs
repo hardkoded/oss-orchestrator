@@ -10,14 +10,18 @@ var key = Environment.GetEnvironmentVariable("ORC_COSMOS_KEY")
     ?? throw new InvalidOperationException("Set ORC_COSMOS_KEY (kept on this machine only).");
 var panelRepos = Environment.GetEnvironmentVariable("ORC_PANEL_REPOS")
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "herdr-app", "orc-data", "repos.json");
-var intervalSec = int.TryParse(Environment.GetEnvironmentVariable("ORC_INTERVAL_SEC"), out var s) ? s : 120;
+var intervalSec = int.TryParse(Environment.GetEnvironmentVariable("ORC_INTERVAL_SEC"), out var s) ? s : 600;
 
 var log = Console.Out;
 var db = DbStore.Connect(endpoint, key);
 var github = new GitHub();
+var feed = new EventFeed(db, log);
+// Not critical: before the events container exists the agent still works on its safety-net interval.
+try { await feed.StartAsync(); }
+catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} event feed not available yet: {e.Message}"); }
 var nudgeEvery = TimeSpan.FromMinutes(30);
 
-await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, every {intervalSec}s, database = source of truth)");
+await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, safety-net pass every {intervalSec}s, wakes on GitHub events, database = source of truth)");
 
 while (true)
 {
@@ -333,7 +337,7 @@ while (true)
         await log.WriteLineAsync($"{DateTime.Now:T} pass failed: {e.Message}");
     }
 
-    await WaitForNextPassAsync(db, intervalSec, log);
+    await WaitForNextPassAsync(db, feed, intervalSec, log);
 }
 
 // Blocks an issue and releases its session. The blocked label is set first: if that fails, the session keeps running.
@@ -359,10 +363,12 @@ static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bo
     return $"blocked {repo.Repo} #{n} and stopped tracking its session";
 }
 
-// Waits between passes, but wakes early when a dashboard Refresh is queued, so the next pass starts right away.
-static async Task WaitForNextPassAsync(DbStore db, int seconds, TextWriter log)
+// Waits between passes, but wakes early when a dashboard Refresh is queued or GitHub reports a change (through the
+// webhook), so the next pass starts right away. The timeout is only a safety net for a webhook that never arrived.
+static async Task WaitForNextPassAsync(DbStore db, EventFeed feed, int seconds, TextWriter log)
 {
-    var deadline = DateTime.UtcNow.AddSeconds(seconds);
+    var started = DateTime.UtcNow;
+    var deadline = started.AddSeconds(seconds);
     while (DateTime.UtcNow < deadline)
     {
         await Task.Delay(TimeSpan.FromSeconds(5));
@@ -377,6 +383,21 @@ static async Task WaitForNextPassAsync(DbStore db, int seconds, TextWriter log)
         catch (Exception e)
         {
             await log.WriteLineAsync($"{DateTime.Now:T} refresh check failed: {e.Message}");
+        }
+        // At least 30s between passes: a burst of events, or events the pass itself causes, must not run a scan back to back.
+        if (DateTime.UtcNow - started < TimeSpan.FromSeconds(30)) continue;
+        try
+        {
+            var events = await feed.NewEventsAsync();
+            if (events > 0)
+            {
+                await log.WriteLineAsync($"{DateTime.Now:T} {events} GitHub event(s): running a pass now");
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            await log.WriteLineAsync($"{DateTime.Now:T} event check failed: {e.Message}");
         }
     }
 }

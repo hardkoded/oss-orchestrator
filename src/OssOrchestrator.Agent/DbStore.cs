@@ -70,6 +70,13 @@ public sealed class NudgeEntry
     public DateTimeOffset At { get; set; }
 }
 
+/// <summary>Where the agent stopped reading the events change feed, so a restart neither replays nor loses events.</summary>
+public sealed class FeedDoc
+{
+    public string Id { get; set; } = "feed";
+    public string? Token { get; set; }
+}
+
 public sealed class RepoStatus
 {
     public string Repo { get; set; } = "";
@@ -115,7 +122,7 @@ public sealed class IssueStatus
     public bool Ignored { get; set; }
 }
 
-public sealed class DbStore(Container config, Container commands, Container state)
+public sealed class DbStore(Container config, Container commands, Container state, Container events)
 {
     public static DbStore Connect(string endpoint, string key)
     {
@@ -124,7 +131,7 @@ public sealed class DbStore(Container config, Container commands, Container stat
             UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase },
         });
         var db = client.GetDatabase("orc");
-        return new DbStore(db.GetContainer("config"), db.GetContainer("commands"), db.GetContainer("state"));
+        return new DbStore(db.GetContainer("config"), db.GetContainer("commands"), db.GetContainer("state"), db.GetContainer("events"));
     }
 
     public async Task<ConfigDoc> LoadConfigAsync(string panelReposPath)
@@ -171,6 +178,37 @@ public sealed class DbStore(Container config, Container commands, Container stat
     }
 
     public Task SaveNudgesAsync(NudgeDoc doc) => state.UpsertItemAsync(doc, new PartitionKey(doc.Id));
+
+    public async Task<string?> LoadFeedTokenAsync()
+    {
+        try
+        {
+            return (await state.ReadItemAsync<FeedDoc>("feed", new PartitionKey("feed"))).Resource.Token;
+        }
+        catch (CosmosException e) when (e.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public Task SaveFeedTokenAsync(string? token) =>
+        Retry.WriteAsync(() => state.UpsertItemAsync(new FeedDoc { Token = token }, new PartitionKey("feed")));
+
+    /// <summary>Reads what the webhook recorded since <paramref name="token"/>. With no token, starts from now.</summary>
+    public async Task<(int Count, string? Token)> ReadEventsAsync(string? token)
+    {
+        var start = token is null ? ChangeFeedStartFrom.Now() : ChangeFeedStartFrom.ContinuationToken(token);
+        using var feed = events.GetChangeFeedIterator<JsonElement>(start, ChangeFeedMode.LatestVersion);
+        var count = 0;
+        while (feed.HasMoreResults)
+        {
+            var page = await feed.ReadNextAsync();
+            token = page.ContinuationToken;
+            if (page.StatusCode == HttpStatusCode.NotModified) break;
+            count += page.Count;
+        }
+        return (count, token);
+    }
 
     private static ConfigDoc SeedFromPanel(string path)
     {
