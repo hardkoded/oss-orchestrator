@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace OssOrchestrator.Agent;
 
 /// <summary>An open PR. Issue is parsed from the branch name, when it carries one.</summary>
-public sealed record PrInfo(int Number, string Url, int? Issue, bool IsDraft, string Mergeable, string Status, string Body = "");
+public sealed record PrInfo(int Number, string Url, int? Issue, bool IsDraft, string Mergeable, string Status, string Body = "", bool ChecksRunning = false);
 
 /// <summary>
 /// The PR status shown on the dashboard: conflicted, failed, building, ready, or pending (no PR or no checks yet).
@@ -20,6 +20,15 @@ public static class PrStatus
         if (mergeable == "CONFLICTING") return "conflicted";
         if (rollup.ValueKind != JsonValueKind.Array || rollup.GetArrayLength() == 0) return "pending";
 
+        var (failed, running) = Scan(rollup);
+        return failed ? "failed" : running ? "building" : "ready";
+    }
+
+    /// <summary>True while any check has not finished. A red build is only reported to a worker once this is false.</summary>
+    public static bool AnyRunning(JsonElement rollup) => rollup.ValueKind == JsonValueKind.Array && Scan(rollup).Running;
+
+    private static (bool Failed, bool Running) Scan(JsonElement rollup)
+    {
         var failed = false;
         var running = false;
         foreach (var check in rollup.EnumerateArray())
@@ -34,7 +43,7 @@ public static class PrStatus
             if (state is "PENDING" or "EXPECTED") running = true;
         }
 
-        return failed ? "failed" : running ? "building" : "ready";
+        return (failed, running);
     }
 
     private static string? Str(JsonElement e, string name) =>
@@ -83,7 +92,8 @@ public sealed class GitHub
                     e.GetProperty("isDraft").GetBoolean(),
                     mergeable,
                     PrStatus.From(mergeable, e.GetProperty("statusCheckRollup").Clone()),
-                    e.TryGetProperty("body", out var body) ? body.GetString() ?? "" : "");
+                    e.TryGetProperty("body", out var body) ? body.GetString() ?? "" : "",
+                    PrStatus.AnyRunning(e.GetProperty("statusCheckRollup")));
             })
             .ToList();
     }

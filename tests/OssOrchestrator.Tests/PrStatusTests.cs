@@ -40,6 +40,16 @@ public class PrStatusTests
     {
         var rollup = Checks("""[{"status":"COMPLETED","conclusion":"FAILURE"},{"status":"IN_PROGRESS","conclusion":""}]""");
         Assert.Equal("failed", PrStatus.From("MERGEABLE", rollup));
+        Assert.True(PrStatus.AnyRunning(rollup));
+    }
+
+    [Theory]
+    [InlineData("""[{"status":"COMPLETED","conclusion":"FAILURE"},{"status":"COMPLETED","conclusion":"SUCCESS"}]""", false)]
+    [InlineData("""[{"status":"COMPLETED","conclusion":"FAILURE"},{"state":"PENDING"}]""", true)]
+    [InlineData("""[{"state":"ERROR"},{"state":"EXPECTED"}]""", true)]
+    public void Checks_are_running_until_every_check_has_finished(string json, bool expected)
+    {
+        Assert.Equal(expected, PrStatus.AnyRunning(Checks(json)));
     }
 
     [Theory]

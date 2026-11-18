@@ -243,7 +243,8 @@ while (true)
         {
             var nudgeKey = $"{sess.Repo}#{sess.Issue}";
             var pr = prs.GetValueOrDefault(sess.Repo)?.FirstOrDefault(p => p.Issue == sess.Issue);
-            if (pr is null || pr.Status is not ("failed" or "conflicted"))
+            // A red build waits until every check has finished, so the worker gets one message with the whole result.
+            if (pr is null || pr.Status is not ("failed" or "conflicted") || (pr.Status == "failed" && pr.ChecksRunning))
             {
                 nudged.Remove(nudgeKey);
                 continue;
