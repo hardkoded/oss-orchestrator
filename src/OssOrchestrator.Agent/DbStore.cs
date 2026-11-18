@@ -46,7 +46,10 @@ public sealed class StateDoc
     public string Id { get; set; } = "current";
     public DateTimeOffset At { get; set; }
     public bool DryRun { get; set; }
+    /// <summary>Sessions that count toward the limit.</summary>
     public int Running { get; set; }
+    /// <summary>Sessions parked on a ready PR. They do not count toward the limit.</summary>
+    public int Ready { get; set; }
     public int MaxTotal { get; set; }
     public List<string> Planned { get; set; } = [];
     public List<RepoStatus> Repos { get; set; } = [];

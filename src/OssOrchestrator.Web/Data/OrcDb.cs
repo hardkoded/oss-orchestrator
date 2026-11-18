@@ -43,6 +43,7 @@ public sealed class StateDoc
     public DateTimeOffset At { get; set; }
     public bool DryRun { get; set; }
     public int Running { get; set; }
+    public int Ready { get; set; }
     public int MaxTotal { get; set; }
     public List<string> Planned { get; set; } = [];
     public List<RepoStatus> Repos { get; set; } = [];

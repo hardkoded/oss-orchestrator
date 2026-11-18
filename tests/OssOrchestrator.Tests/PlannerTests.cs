@@ -22,6 +22,29 @@ public class PlannerTests
         Assert.Equal([1], result.Select(r => r.Issue));
     }
 
+    [Theory]
+    [InlineData("ready", false, true)]
+    [InlineData("ready", true, false)]
+    [InlineData("building", false, false)]
+    [InlineData("failed", false, false)]
+    [InlineData("conflicted", false, false)]
+    public void Only_a_ready_PR_that_is_not_a_draft_frees_its_slot(string status, bool draft, bool expected)
+    {
+        Assert.Equal(expected, Planner.FreesSlot(new PrInfo(1, "u", 1, draft, "MERGEABLE", status)));
+    }
+
+    [Fact]
+    public void A_PR_whose_mergeability_is_still_unknown_keeps_its_slot()
+    {
+        Assert.False(Planner.FreesSlot(new PrInfo(1, "u", 1, false, "UNKNOWN", "ready")));
+    }
+
+    [Fact]
+    public void A_session_without_a_PR_keeps_its_slot()
+    {
+        Assert.False(Planner.FreesSlot(null));
+    }
+
     [Fact]
     public void Global_limit_is_respected_when_full()
     {

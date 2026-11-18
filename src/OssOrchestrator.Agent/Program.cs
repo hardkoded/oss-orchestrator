@@ -122,7 +122,10 @@ while (true)
         }
         if (cloudChanged) await db.SaveConfigAsync(config);
 
-        var running = shown.Count;
+        // A session whose PR is ready (green and without conflict) waits on a human, so it frees its slot until the PR
+        // goes red or conflicts again. That can briefly put the total above the limit.
+        var ready = shown.Count(s => Planner.FreesSlot(prs.GetValueOrDefault(s.Repo)?.FirstOrDefault(p => p.Issue == s.Issue)));
+        var running = shown.Count - ready;
 
         // Free the in-progress label when the issue's PR is merged or closed. Only when this pass read both the open
         // and the finished PRs of the repo, so a failed lookup never clears a label by mistake, and never while a session
@@ -333,7 +336,8 @@ while (true)
         {
             At = DateTimeOffset.UtcNow,
             DryRun = dryRun,
-            Running = shown.Count,
+            Running = running,
+            Ready = ready,
             MaxTotal = config.MaxTotal,
             Planned = plan.Select(p => $"{p.Repo}#{p.Issue}").ToList(),
             Repos = config.Repos.Select(r => new RepoStatus
@@ -381,7 +385,7 @@ while (true)
                 }).ToList(),
             }).ToList(),
         });
-        await log.WriteLineAsync($"{DateTime.Now:T} pass done: running={running} planned={plan.Count} errors={errors.Count}");
+        await log.WriteLineAsync($"{DateTime.Now:T} pass done: running={running} ready={ready} planned={plan.Count} errors={errors.Count}");
     }
     catch (Exception e)
     {

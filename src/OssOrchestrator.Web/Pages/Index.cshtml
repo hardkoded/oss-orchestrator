@@ -68,6 +68,7 @@
     <div class="card">
         <div class="kpis">
             <div class="kpi"><b>@(state?.Running ?? 0)</b><span>sessions running</span></div>
+            <div class="kpi"><b>@(state?.Ready ?? 0)</b><span>sessions ready</span></div>
             <div class="kpi"><b>@(state?.MaxTotal ?? 0)</b><span>global limit</span></div>
             <div class="kpi"><b>@(state?.Planned.Count ?? 0)</b><span>planned to launch</span></div>
             <div class="kpi"><b>@(state?.ClosedLast24h ?? 0)</b><span>issues closed in 24h</span></div>
