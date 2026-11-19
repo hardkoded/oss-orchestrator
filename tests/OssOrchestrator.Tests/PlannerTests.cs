@@ -25,10 +25,11 @@ public class PlannerTests
     [Theory]
     [InlineData("ready", false, true)]
     [InlineData("ready", true, false)]
-    [InlineData("building", false, false)]
+    [InlineData("building", false, true)]
+    [InlineData("building", true, false)]
     [InlineData("failed", false, false)]
     [InlineData("conflicted", false, false)]
-    public void Only_a_ready_PR_that_is_not_a_draft_frees_its_slot(string status, bool draft, bool expected)
+    public void Only_a_ready_or_building_PR_that_is_not_a_draft_frees_its_slot(string status, bool draft, bool expected)
     {
         Assert.Equal(expected, Planner.FreesSlot("cloud", new PrInfo(1, "u", 1, draft, "MERGEABLE", status)));
     }
