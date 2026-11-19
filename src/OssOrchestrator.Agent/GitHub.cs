@@ -78,17 +78,16 @@ public sealed class GitHub
     public async Task<IReadOnlyList<PrInfo>> OpenPrsAsync(string folder, CancellationToken ct)
     {
         var json = await RunAsync(folder, ct, "pr", "list", "--state", "open", "--limit", "50",
-            "--json", "number,url,headRefName,isDraft,mergeable,statusCheckRollup,body");
+            "--json", "number,url,headRefName,isDraft,mergeable,statusCheckRollup,body,closingIssuesReferences");
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.EnumerateArray()
             .Select(e =>
             {
-                var branch = e.GetProperty("headRefName").GetString() ?? "";
                 var mergeable = e.GetProperty("mergeable").GetString() ?? "UNKNOWN";
                 return new PrInfo(
                     e.GetProperty("number").GetInt32(),
                     e.GetProperty("url").GetString() ?? "",
-                    IssueFromBranch(branch),
+                    IssueOf(e),
                     e.GetProperty("isDraft").GetBoolean(),
                     mergeable,
                     PrStatus.From(mergeable, e.GetProperty("statusCheckRollup").Clone()),
@@ -129,14 +128,14 @@ public sealed class GitHub
     public async Task<IReadOnlyDictionary<int, PrInfo>> FinishedPrsByIssueAsync(string folder, CancellationToken ct)
     {
         var json = await RunAsync(folder, ct, "pr", "list", "--state", "all", "--limit", "100",
-            "--json", "number,url,headRefName,state");
+            "--json", "number,url,headRefName,state,closingIssuesReferences");
         using var doc = JsonDocument.Parse(json);
         var result = new Dictionary<int, PrInfo>();
         foreach (var e in doc.RootElement.EnumerateArray())
         {
             var state = e.GetProperty("state").GetString();
             if (state is not ("MERGED" or "CLOSED")) continue;
-            var issue = IssueFromBranch(e.GetProperty("headRefName").GetString() ?? "");
+            var issue = IssueOf(e);
             // gh lists the newest PR first, so the first one seen per issue is the one to show.
             if (issue is null || result.ContainsKey(issue.Value)) continue;
             result[issue.Value] = new PrInfo(
@@ -208,6 +207,22 @@ public sealed class GitHub
     /// <summary>The login the gh CLI is signed in as.</summary>
     public async Task<string> CurrentLoginAsync(CancellationToken ct) =>
         (await RunAsync(".", ct, "api", "user", "--jq", ".login")).Trim();
+
+    /// <summary>
+    /// The issue a PR works on. The branch number (fix/1531-name) when the PR closes that issue or closes nothing, else
+    /// the first issue it closes. A branch such as claude/clever-curie-2z9y6j has no real issue number, so the closing
+    /// reference ("Closes #N") decides there.
+    /// </summary>
+    public static int? IssueOf(JsonElement pr)
+    {
+        var fromBranch = IssueFromBranch(pr.GetProperty("headRefName").GetString() ?? "");
+        var closing = new List<int>();
+        if (pr.TryGetProperty("closingIssuesReferences", out var refs) && refs.ValueKind == JsonValueKind.Array)
+            foreach (var r in refs.EnumerateArray())
+                if (r.TryGetProperty("number", out var n) && n.TryGetInt32(out var number)) closing.Add(number);
+        if (closing.Count == 0 || (fromBranch is int b && closing.Contains(b))) return fromBranch;
+        return closing[0];
+    }
 
     /// <summary>The issue number in a branch name such as fix/1531-short-name, or null.</summary>
     public static int? IssueFromBranch(string branch)

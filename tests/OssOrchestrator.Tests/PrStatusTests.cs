@@ -53,6 +53,16 @@ public class PrStatusTests
     }
 
     [Theory]
+    [InlineData("""{"headRefName":"claude/clever-curie-2z9y6j","closingIssuesReferences":[{"number":3826}]}""", 3826)]
+    [InlineData("""{"headRefName":"fix/1531-short-name","closingIssuesReferences":[{"number":1600},{"number":1531}]}""", 1531)]
+    [InlineData("""{"headRefName":"fix/1531-short-name","closingIssuesReferences":[]}""", 1531)]
+    [InlineData("""{"headRefName":"fix/1531-short-name"}""", 1531)]
+    public void The_issue_comes_from_the_closing_reference_unless_the_branch_number_is_one_of_them(string pr, int expected)
+    {
+        Assert.Equal(expected, GitHub.IssueOf(Checks(pr)));
+    }
+
+    [Theory]
     [InlineData("fix/1531-short-name", 1531)]
     [InlineData("feature/2-x", 2)]
     [InlineData("main", null)]
