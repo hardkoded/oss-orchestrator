@@ -122,10 +122,12 @@ while (true)
         }
         if (cloudChanged) await db.SaveConfigAsync(config);
 
-        // A session whose PR is ready (green and without conflict) waits on a human, so it frees its slot until the PR
-        // goes red or conflicts again. That can briefly put the total above the limit.
-        var ready = shown.Count(s => Planner.FreesSlot(prs.GetValueOrDefault(s.Repo)?.FirstOrDefault(p => p.Issue == s.Issue)));
-        var running = shown.Count - ready;
+        // A session that waits on a human frees its slot: it asked a question, or its PR is ready (green and without
+        // conflict). The slot comes back when the answer arrives or the PR goes red or conflicts again, so the total
+        // can briefly go above the limit.
+        var freed = shown.Where(s => Planner.FreesSlot(s.Status, prs.GetValueOrDefault(s.Repo)?.FirstOrDefault(p => p.Issue == s.Issue))).ToList();
+        var ready = freed.Count(s => s.Status != "blocked");
+        var running = shown.Count - freed.Count;
 
         // Free the in-progress label when the issue's PR is merged or closed. Only when this pass read both the open
         // and the finished PRs of the repo, so a failed lookup never clears a label by mistake, and never while a session

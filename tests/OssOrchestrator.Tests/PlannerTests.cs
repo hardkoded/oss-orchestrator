@@ -30,19 +30,25 @@ public class PlannerTests
     [InlineData("conflicted", false, false)]
     public void Only_a_ready_PR_that_is_not_a_draft_frees_its_slot(string status, bool draft, bool expected)
     {
-        Assert.Equal(expected, Planner.FreesSlot(new PrInfo(1, "u", 1, draft, "MERGEABLE", status)));
+        Assert.Equal(expected, Planner.FreesSlot("cloud", new PrInfo(1, "u", 1, draft, "MERGEABLE", status)));
     }
 
     [Fact]
     public void A_PR_whose_mergeability_is_still_unknown_keeps_its_slot()
     {
-        Assert.False(Planner.FreesSlot(new PrInfo(1, "u", 1, false, "UNKNOWN", "ready")));
+        Assert.False(Planner.FreesSlot("cloud", new PrInfo(1, "u", 1, false, "UNKNOWN", "ready")));
+    }
+
+    [Fact]
+    public void A_session_that_asked_a_question_frees_its_slot_even_without_a_PR()
+    {
+        Assert.True(Planner.FreesSlot("blocked", null));
     }
 
     [Fact]
     public void A_session_without_a_PR_keeps_its_slot()
     {
-        Assert.False(Planner.FreesSlot(null));
+        Assert.False(Planner.FreesSlot("cloud", null));
     }
 
     [Fact]

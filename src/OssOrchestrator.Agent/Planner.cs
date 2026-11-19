@@ -20,8 +20,9 @@ public sealed record Launch(string Repo, int Issue);
 
 public static class Planner
 {
-    /// <summary>A session whose open PR is ready (not a draft, green, and GitHub says it can merge) waits on a human, so it does not hold a slot.</summary>
-    public static bool FreesSlot(PrInfo? pr) => pr is { Status: "ready", IsDraft: false, Mergeable: "MERGEABLE" };
+    /// <summary>A session waits on a human, so it does not hold a slot, when it asked a question (blocked) or when its open PR is ready (not a draft, green, and GitHub says it can merge).</summary>
+    public static bool FreesSlot(string sessionStatus, PrInfo? pr) =>
+        sessionStatus == "blocked" || pr is { Status: "ready", IsDraft: false, Mergeable: "MERGEABLE" };
 
     /// <summary>
     /// Picks which free issues to launch now. Global limit only (no per-repo limit).
