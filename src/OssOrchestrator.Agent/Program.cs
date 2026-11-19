@@ -122,8 +122,8 @@ while (true)
         }
         if (cloudChanged) await db.SaveConfigAsync(config);
 
-        // A session that waits on a human frees its slot: it asked a question, or its PR is ready (green and without
-        // conflict). The slot comes back when the answer arrives or the PR goes red or conflicts again, so the total
+        // A session that waits on a human frees its slot: it asked a question, or its PR is ready or still building (no
+        // failed check, no conflict). The slot comes back when the answer arrives or the PR goes red or conflicts again, so the total
         // can briefly go above the limit.
         var freed = shown.Where(s => Planner.FreesSlot(s.Status, prs.GetValueOrDefault(s.Repo)?.FirstOrDefault(p => p.Issue == s.Issue))).ToList();
         var ready = freed.Count(s => s.Status != "blocked");
