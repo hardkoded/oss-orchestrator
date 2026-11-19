@@ -106,7 +106,7 @@
                 {
                     <tr>
                         <td>@s.Repo</td>
-                        <td class="num">#@s.Issue</td>
+                        <td class="num"><a href="https://github.com/@s.Repo/issues/@s.Issue" target="_blank" rel="noopener">#@s.Issue</a></td>
                         <td class="title">@s.Title</td>
                         <td class="muted">@(s.StartedAt is { } st ? st.ToLocalTime().ToString("MM-dd HH:mm") : "-")</td>
                         <td class="muted">@(s.StartedAt is { } st2 ? Elapsed(DateTimeOffset.UtcNow - st2) : "-")</td>
@@ -180,7 +180,7 @@
                     @foreach (var i in tabIssues.Items)
                     {
                         <tr>
-                            <td class="num">#@i.Number</td>
+                            <td class="num"><a href="https://github.com/@tabIssues.Repo/issues/@i.Number" target="_blank" rel="noopener">#@i.Number</a></td>
                             <td class="title">@i.Title</td>
                             <td>
                                 @if (i.InProgress) { <span class="pill on">in-progress</span> }
