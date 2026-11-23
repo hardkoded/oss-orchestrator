@@ -8,7 +8,7 @@ public class PlannerTests
 
     private static PlanInput Input(int running = 0, RepoSettings[]? repos = null, IssueInfo[]? issues = null,
         string[]? ignored = null, Dictionary<string, long>? launched = null) => new(
-            MaxTotal: 6, Running: running,
+            MaxTotal: 6, Running: running, Total: running,
             Repos: repos ?? [Auto],
             IssuesByRepo: new Dictionary<string, IReadOnlyList<IssueInfo>> { ["o/r"] = issues ?? [new(1, "a", false), new(2, "b", false)] },
             Ignored: new HashSet<string>(ignored ?? []),
@@ -44,6 +44,14 @@ public class PlannerTests
     public void A_session_that_asked_a_question_frees_its_slot_even_without_a_PR()
     {
         Assert.True(Planner.FreesSlot("blocked", null));
+    }
+
+    [Fact]
+    public void Freed_sessions_still_count_toward_the_global_cap_of_20()
+    {
+        var input = MultiRepo(slots: 20) with { Running = 5, Total = 19 };
+        Assert.Single(Planner.Plan(input));
+        Assert.Empty(Planner.Plan(input with { Total = 20 }));
     }
 
     [Fact]
@@ -90,7 +98,7 @@ public class PlannerTests
     {
         var names = new[] { "o/a", "o/b", "o/c", "o/d" };
         return new PlanInput(
-            MaxTotal: slots, Running: 0,
+            MaxTotal: slots, Running: 0, Total: 0,
             Repos: names.Select(n => new RepoSettings(n, @"C:\" + n[2..], Paused: false, Auto: true)).ToList(),
             IssuesByRepo: names.ToDictionary(n => n, n => (IReadOnlyList<IssueInfo>)[new IssueInfo(1, "x", false), new IssueInfo(2, "y", false)]),
             Ignored: new HashSet<string>(),

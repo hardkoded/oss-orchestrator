@@ -9,6 +9,7 @@ public sealed record IssueInfo(int Number, string Title, bool Assigned, bool InP
 public sealed record PlanInput(
     int MaxTotal,
     int Running,
+    int Total,
     IReadOnlyList<RepoSettings> Repos,
     IReadOnlyDictionary<string, IReadOnlyList<IssueInfo>> IssuesByRepo,
     IReadOnlySet<string> Ignored,              // "repo#n"
@@ -20,6 +21,9 @@ public sealed record Launch(string Repo, int Issue);
 
 public static class Planner
 {
+    /// <summary>Hard limit on all sessions, freed ones included, so freed slots cannot grow the total without bound.</summary>
+    public const int GlobalCap = 20;
+
     /// <summary>A session waits on a human or on CI, so it does not hold a slot, when it asked a question (blocked) or when its open PR is ready or still building (not a draft, no failed check, and GitHub says it can merge).</summary>
     public static bool FreesSlot(string sessionStatus, PrInfo? pr) =>
         sessionStatus == "blocked" || pr is { Status: "ready" or "building", IsDraft: false, Mergeable: "MERGEABLE" };
@@ -31,7 +35,7 @@ public static class Planner
     /// </summary>
     public static IReadOnlyList<Launch> Plan(PlanInput input)
     {
-        var slots = input.MaxTotal - input.Running;
+        var slots = Math.Min(input.MaxTotal - input.Running, GlobalCap - input.Total);
         if (slots <= 0) return [];
 
         // Candidates per repo, lowest issue number first within a repo.
