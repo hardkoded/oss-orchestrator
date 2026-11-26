@@ -7,6 +7,38 @@ public class BlockedByTests
 {
     private static readonly HashSet<string> Own = new(StringComparer.OrdinalIgnoreCase) { "worker" };
 
+    private static readonly DateTimeOffset Noon = new(2026, 11, 26, 12, 0, 0, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData("labeled", "needs-answer", -60, true)]
+    [InlineData("labeled", "needs-answer", 60, false)]
+    [InlineData("unlabeled", "waiting-on", -60, true)]
+    [InlineData("unlabeled", "waiting-on", 60, false)]
+    [InlineData("unlabeled", "needs-answer", 60, true)]
+    [InlineData("labeled", "waiting-on", 60, true)]
+    [InlineData("labeled", "in-progress", 60, false)]
+    [InlineData("labeled", "in-progress", -60, true)]
+    [InlineData("unlabeled", "Waiting-On", 60, false)]
+    public void A_marker_starts_a_wait_unless_a_question_or_the_end_of_a_wait_came_after_it(string action, string label, int seconds, bool expected)
+    {
+        Assert.Equal(expected, BlockedBy.IsNewWait(Noon, [(action, label, Noon.AddSeconds(seconds))]));
+    }
+
+    [Fact]
+    public void The_time_is_that_of_the_newest_marker_comment()
+    {
+        var issue = JsonSerializer.SerializeToElement(new
+        {
+            comments = new[]
+            {
+                new { author = new { login = "worker" }, body = "<!-- orc:blocked-by #12 -->", createdAt = Noon },
+                new { author = new { login = "worker" }, body = "No marker", createdAt = Noon.AddHours(1) },
+            },
+        });
+        Assert.Equal(Noon, BlockedBy.MarkedAt(issue, 1, Own));
+        Assert.Null(BlockedBy.MarkedAt(Comments(("worker", "No marker")), 1, Own));
+    }
+
     private static JsonElement Comments(params (string Login, string Body)[] items) =>
         JsonSerializer.SerializeToElement(new
         {

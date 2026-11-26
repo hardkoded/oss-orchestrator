@@ -25,6 +25,17 @@ public static class IssueLabels
     public static Task RemoveInProgressAsync(string folder, int issue, CancellationToken ct) =>
         EditAsync(folder, issue, "--remove-label", InProgress, ct);
 
+    /// <summary>Adds the waiting-on label for a worker that named its blockers without it. A repo may not have the label yet.</summary>
+    public static async Task MarkWaitingOnAsync(string folder, int issue, CancellationToken ct)
+    {
+        await RunAsync(folder, ct, "label", "create", WaitingOn);   // fails when the label is already there
+        await EditAsync(folder, issue, "--add-label", WaitingOn, ct);
+    }
+
+    /// <summary>Removes the needs-answer label of a worker that waits on blockers now, so its question is over.</summary>
+    public static Task RemoveNeedsAnswerAsync(string folder, int issue, CancellationToken ct) =>
+        EditAsync(folder, issue, "--remove-label", NeedsAnswer, ct);
+
     /// <summary>Removes the waiting-on label once the worker has been told its blocker is done.</summary>
     public static Task RemoveWaitingOnAsync(string folder, int issue, CancellationToken ct) =>
         EditAsync(folder, issue, "--remove-label", WaitingOn, ct);
@@ -39,12 +50,18 @@ public static class IssueLabels
 
     private static async Task EditAsync(string folder, int issue, string flag, string label, CancellationToken ct)
     {
+        var (exitCode, stderr) = await RunAsync(folder, ct, "issue", "edit", issue.ToString(), flag, label);
+        if (exitCode != 0) throw new InvalidOperationException($"could not change label on #{issue}: {stderr.Trim()}");
+    }
+
+    private static async Task<(int ExitCode, string Error)> RunAsync(string folder, CancellationToken ct, params string[] args)
+    {
         var psi = new ProcessStartInfo("gh") { RedirectStandardOutput = true, RedirectStandardError = true };
         GhEnv.Apply(psi, folder);
-        foreach (var a in new[] { "issue", "edit", issue.ToString(), flag, label }) psi.ArgumentList.Add(a);
+        foreach (var a in args) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("gh did not start");
         var stderr = await p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
-        if (p.ExitCode != 0) throw new InvalidOperationException($"could not change label on #{issue}: {stderr.Trim()}");
+        return (p.ExitCode, stderr);
     }
 }

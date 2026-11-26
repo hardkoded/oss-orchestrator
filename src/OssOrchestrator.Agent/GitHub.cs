@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 
 namespace OssOrchestrator.Agent;
@@ -161,6 +162,26 @@ public sealed class GitHub
     /// <summary>The raw gh JSON of an issue with its comments, oldest first.</summary>
     public async Task<JsonDocument> IssueCommentsAsync(string folder, int issue, CancellationToken ct) =>
         JsonDocument.Parse(await RunAsync(folder, ct, "issue", "view", issue.ToString(), "--json", "comments"));
+
+    /// <summary>Every open issue with the label, with its first 100 comments, by number. One call covers all of them.</summary>
+    public async Task<IReadOnlyDictionary<int, JsonElement>> IssuesWithCommentsAsync(string folder, string label, CancellationToken ct)
+    {
+        var json = await RunAsync(folder, ct, "issue", "list", "--state", "open", "--label", label,
+            "--limit", "300", "--json", "number,comments");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.EnumerateArray().ToDictionary(e => e.GetProperty("number").GetInt32(), e => e.Clone());
+    }
+
+    /// <summary>When each label of the issue was added and removed.</summary>
+    public async Task<IReadOnlyList<(string Event, string Label, DateTimeOffset At)>> LabelHistoryAsync(string folder, string repo, int issue, CancellationToken ct)
+    {
+        var lines = await RunAsync(folder, ct, "api", $"repos/{repo}/issues/{issue}/events", "--paginate",
+            "--jq", ".[] | select(.label) | [.event, .label.name, .created_at] | @tsv");
+        return lines.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t'))
+            .Select(p => (p[0], p[1], DateTimeOffset.Parse(p[2], CultureInfo.InvariantCulture)))
+            .ToList();
+    }
 
     /// <summary>Whether an issue or PR of the repo is still open. The issues API answers for both, and tells a merged PR from a closed one.</summary>
     public async Task<BlockerState> BlockerStateAsync(string folder, string repo, int number, CancellationToken ct)

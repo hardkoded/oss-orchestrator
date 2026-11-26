@@ -136,6 +136,41 @@ while (true)
         var blockedBy = new Dictionary<string, List<int>>();
         if (workerLogins.Count > 0)
         {
+            // A worker may name its blockers and miss the labels. Then the agent sets them: waiting-on on, needs-answer off.
+            foreach (var repo in config.Repos)
+            {
+                if (!shown.Any(s => s.Repo == repo.Repo && s.Status != "waiting")) continue;
+                try
+                {
+                    var commented = await github.IssuesWithCommentsAsync(repo.Folder, IssueLabels.InProgress, CancellationToken.None);
+                    for (var i = 0; i < shown.Count; i++)
+                    {
+                        var sess = shown[i];
+                        if (sess.Repo != repo.Repo || sess.Status == "waiting" || !commented.TryGetValue(sess.Issue, out var listed)) continue;
+                        try
+                        {
+                            // The list holds 100 comments at most. A longer issue is read on its own.
+                            using var whole = listed.GetProperty("comments").GetArrayLength() < 100
+                                ? null : await github.IssueCommentsAsync(repo.Folder, sess.Issue, CancellationToken.None);
+                            if (BlockedBy.MarkedAt(whole?.RootElement ?? listed, sess.Issue, workerLogins) is not { } markedAt) continue;
+                            var history = await github.LabelHistoryAsync(repo.Folder, sess.Repo, sess.Issue, CancellationToken.None);
+                            if (!BlockedBy.IsNewWait(markedAt, history)) continue;
+                            if (dryRun)
+                            {
+                                await log.WriteLineAsync($"[dry-run] would mark {sess.Repo}#{sess.Issue} as {IssueLabels.WaitingOn}");
+                                continue;
+                            }
+                            await IssueLabels.MarkWaitingOnAsync(repo.Folder, sess.Issue, CancellationToken.None);
+                            if (sess.Status == "blocked") await IssueLabels.RemoveNeedsAnswerAsync(repo.Folder, sess.Issue, CancellationToken.None);
+                            shown[i] = sess with { Status = "waiting" };
+                            await log.WriteLineAsync($"{DateTime.Now:T} {sess.Repo}#{sess.Issue} named its blockers, so it is marked {IssueLabels.WaitingOn}");
+                        }
+                        catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not mark {sess.Repo}#{sess.Issue} as waiting: {e.Message}"); }
+                    }
+                }
+                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not look for new blockers in {repo.Repo}: {e.Message}"); }
+            }
+
             for (var i = 0; i < shown.Count; i++)
             {
                 var sess = shown[i];

@@ -12,7 +12,7 @@ Orchestrates Claude Code sessions, one per GitHub issue, with a dashboard.
 
 ## Waiting on another issue or PR
 
-A worker that cannot go on until other issues or PRs of the same repo are done posts one comment with a marker `<!-- orc:blocked-by #123 -->` for each one, then adds the `waiting-on` label. Only the newest such comment counts. Only comments by the worker's own login count. While the label is on, the dashboard lists the session under the session of its first open blocker (or under "Waiting on others" when that blocker has no session) and names its other open blockers, and it does not hold a slot. When every blocker is merged, completed or closed, the agent tells the worker to continue and removes the label.
+A worker that cannot go on until other issues or PRs of the same repo are done posts one comment with a marker `<!-- orc:blocked-by #123 -->` for each one, then adds the `waiting-on` label. Only the newest such comment counts. Only comments by the worker's own login count. If the worker posts the comment but misses the label, the agent adds `waiting-on` and removes `needs-answer`. This happens only when the comment is newer than the start of the session, the last question and the end of the last wait. While the label is on, the dashboard lists the session under the session of its first open blocker (or under "Waiting on others" when that blocker has no session) and names its other open blockers, and it does not hold a slot. When every blocker is merged, completed or closed, the agent tells the worker to continue and removes the label.
 
 ## Hosting and access
 
