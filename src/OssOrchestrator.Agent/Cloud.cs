@@ -46,20 +46,23 @@ public static class CloudSessions
 
     /// <summary>
     /// Sends a message to a running cloud session (claude -p --cloud). The CLI takes the cse_ form of the id,
-    /// which shares its suffix with the session_ id the dashboard stores.
+    /// which shares its suffix with the session_ id the dashboard stores. The sessions belong to the personal account,
+    /// so the CLI always runs with that profile, whatever the shell uses.
     /// </summary>
     public static async Task<bool> SendAsync(string sessionId, string text, CancellationToken ct)
     {
         var id = sessionId.StartsWith("session_", StringComparison.Ordinal) ? "cse_" + sessionId["session_".Length..] : sessionId;
         var psi = new ProcessStartInfo("claude") { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
         foreach (var a in new[] { "-p", text, "--cloud", id }) psi.ArgumentList.Add(a);
+        psi.Environment["CLAUDE_CONFIG_DIR"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude-personal");
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("claude did not start");
         p.StandardInput.Close();
         await p.StandardOutput.ReadToEndAsync(ct);
         var stderr = await p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
         if (p.ExitCode == 0) return true;
-        var error = stderr.Trim();
+        // Warnings come first and are long. Without them the capped log line shows the real error.
+        var error = string.Join('\n', stderr.Split('\n').Where(line => !line.StartsWith("Warning:", StringComparison.Ordinal))).Trim();
         throw error.Contains("Session not found", StringComparison.OrdinalIgnoreCase)
             ? new CloudSessionGoneException(error)
             : new InvalidOperationException(error);
