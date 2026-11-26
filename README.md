@@ -10,6 +10,10 @@ Orchestrates Claude Code sessions, one per GitHub issue, with a dashboard.
 - **Database**: Azure Cosmos DB free tier. Containers: `config`, `commands`, `state`, `events`.
 - **Webhook**: GitHub calls `POST /webhooks/github` on the web app. It checks the signature and records the event in `events`. The agent reads that container through the change feed and runs a pass right away. The pass reads the real state from GitHub, so the event only says "look now".
 
+## Waiting on another issue or PR
+
+A worker that cannot go on until another issue or PR of the same repo is done adds the `waiting-on` label and posts a comment with the marker `<!-- orc:blocked-by #123 -->`. Only comments by the worker's own login count. While the label is on, the session shows "waiting on a blocker" with the blocker in the "Blocked by" column, and it does not hold a slot. When the blocker is merged, completed or closed, the agent tells the worker to continue and removes the label.
+
 ## Hosting and access
 
 - The web app runs on Azure App Service (F1) with App Service Authentication (Microsoft Entra ID). Only the owner's account is allowed. Every route requires login.
