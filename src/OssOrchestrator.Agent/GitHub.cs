@@ -55,7 +55,7 @@ public sealed class GitHub
 {
     public async Task<IReadOnlyList<IssueInfo>> OpenIssuesAsync(RepoSettings repo, CancellationToken ct)
     {
-        var json = await RunAsync(repo.Folder, ct, "issue", "list", "--state", "open", "--limit", "30",
+        var json = await RunAsync(repo.Folder, ct, "issue", "list", "--state", "open", "--limit", "500",
             "--json", "number,title,assignees,labels");
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.EnumerateArray()

@@ -27,26 +27,26 @@ public static class Applier
             case "auto":
             case "ignore":
             case "restore":
-            {
-                var repo = config.Repos.FirstOrDefault(r => r.Repo == cmd.Repo);
-                if (repo is null) return $"unknown repo {cmd.Repo}";
-                switch (cmd.Type)
                 {
-                    case "pause": repo.Paused = true; return $"paused {repo.Repo}";
-                    case "resume": repo.Paused = false; return $"resumed {repo.Repo}";
-                    case "auto":
-                        repo.Auto = cmd.Value is { ValueKind: JsonValueKind.True };
-                        return $"auto {(repo.Auto ? "on" : "off")} for {repo.Repo}";
+                    var repo = config.Repos.FirstOrDefault(r => r.Repo == cmd.Repo);
+                    if (repo is null) return $"unknown repo {cmd.Repo}";
+                    switch (cmd.Type)
+                    {
+                        case "pause": repo.Paused = true; return $"paused {repo.Repo}";
+                        case "resume": repo.Paused = false; return $"resumed {repo.Repo}";
+                        case "auto":
+                            repo.Auto = cmd.Value is { ValueKind: JsonValueKind.True };
+                            return $"auto {(repo.Auto ? "on" : "off")} for {repo.Repo}";
+                    }
+                    if (cmd.Issue is not int n) return "missing issue number";
+                    if (cmd.Type == "ignore")
+                    {
+                        if (!repo.Ignored.Contains(n)) repo.Ignored.Add(n);
+                        return $"ignored {repo.Repo} #{n}";
+                    }
+                    repo.Ignored.Remove(n);
+                    return $"restored {repo.Repo} #{n}";
                 }
-                if (cmd.Issue is not int n) return "missing issue number";
-                if (cmd.Type == "ignore")
-                {
-                    if (!repo.Ignored.Contains(n)) repo.Ignored.Add(n);
-                    return $"ignored {repo.Repo} #{n}";
-                }
-                repo.Ignored.Remove(n);
-                return $"restored {repo.Repo} #{n}";
-            }
             case "refresh":
                 // Nothing to change here: the pass that applies this command reads GitHub and state again.
                 return "refreshed: full pass run";

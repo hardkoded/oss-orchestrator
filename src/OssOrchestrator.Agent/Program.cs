@@ -28,6 +28,8 @@ var nudgeEvery = TimeSpan.FromMinutes(30);
 var commentTried = new Dictionary<string, DateTimeOffset>();
 // "repo#issue" of workers already told their blockers are done, whose waiting-on label could not be removed yet. They are not told twice.
 var resumed = new HashSet<string>();
+// Ids of the commands that already woke the agent, so one that cannot be marked processed does not start pass after pass.
+var woke = new HashSet<string>();
 
 await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, safety-net pass every {intervalSec}s, wakes on GitHub events, database = source of truth)");
 
@@ -455,7 +457,7 @@ while (true)
         await log.WriteLineAsync($"{DateTime.Now:T} pass failed: {e.Message}");
     }
 
-    await WaitForNextPassAsync(db, feed, intervalSec, log);
+    await WaitForNextPassAsync(db, feed, intervalSec, woke, log);
 }
 
 // The login is looked up again each pass until it is known.
@@ -489,9 +491,9 @@ static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bo
     return $"blocked {repo.Repo} #{n} and stopped tracking its session";
 }
 
-// Waits between passes, but wakes early when a dashboard Refresh is queued or GitHub reports a change (through the
+// Waits between passes, but wakes early when a dashboard command is queued or GitHub reports a change (through the
 // webhook), so the next pass starts right away. The timeout is only a safety net for a webhook that never arrived.
-static async Task WaitForNextPassAsync(DbStore db, EventFeed feed, int seconds, TextWriter log)
+static async Task WaitForNextPassAsync(DbStore db, EventFeed feed, int seconds, ISet<string> woke, TextWriter log)
 {
     var started = DateTime.UtcNow;
     var deadline = started.AddSeconds(seconds);
@@ -500,15 +502,16 @@ static async Task WaitForNextPassAsync(DbStore db, EventFeed feed, int seconds, 
         await Task.Delay(TimeSpan.FromSeconds(5));
         try
         {
-            if ((await db.PendingCommandsAsync()).Any(c => c.Type == "refresh"))
+            var queued = (await db.PendingCommandsAsync()).Where(c => woke.Add(c.Id)).Select(c => c.Type).ToList();
+            if (queued.Count > 0)
             {
-                await log.WriteLineAsync($"{DateTime.Now:T} refresh requested: running a pass now");
+                await log.WriteLineAsync($"{DateTime.Now:T} command(s) queued: {string.Join(", ", queued)}. Running a pass now");
                 return;
             }
         }
         catch (Exception e)
         {
-            await log.WriteLineAsync($"{DateTime.Now:T} refresh check failed: {e.Message}");
+            await log.WriteLineAsync($"{DateTime.Now:T} command check failed: {e.Message}");
         }
         // At least 30s between passes: a burst of events, or events the pass itself causes, must not run a scan back to back.
         if (DateTime.UtcNow - started < TimeSpan.FromSeconds(30)) continue;

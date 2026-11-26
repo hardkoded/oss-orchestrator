@@ -175,7 +175,7 @@ public sealed class DbStore(Container config, Container commands, Container stat
     {
         var result = new List<CommandDoc>();
         var query = commands.GetItemQueryIterator<CommandDoc>(
-            new QueryDefinition("SELECT * FROM c WHERE c.processed = false"));
+            new QueryDefinition("SELECT * FROM c WHERE c.processed = false ORDER BY c.createdAt"));
         while (query.HasMoreResults)
             result.AddRange(await query.ReadNextAsync());
         return result;
