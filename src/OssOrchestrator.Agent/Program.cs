@@ -26,7 +26,7 @@ catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} event feed not
 var nudgeEvery = TimeSpan.FromMinutes(30);
 // "repo#issue" -> when a comment message last failed to reach its session, so an unreachable one is retried after nudgeEvery, not every pass.
 var commentTried = new Dictionary<string, DateTimeOffset>();
-// "repo#issue" of workers already told their blocker is done, whose waiting-on label could not be removed yet. They are not told twice.
+// "repo#issue" of workers already told their blockers are done, whose waiting-on label could not be removed yet. They are not told twice.
 var resumed = new HashSet<string>();
 
 await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, safety-net pass every {intervalSec}s, wakes on GitHub events, database = source of truth)");
@@ -142,22 +142,29 @@ while (true)
                 var folder = config.Repos.First(r => r.Repo == sess.Repo).Folder;
                 try
                 {
-                    int? blocker;
+                    IReadOnlyList<int> blockers;
                     using (var comments = await github.IssueCommentsAsync(folder, sess.Issue, CancellationToken.None))
-                        blocker = BlockedBy.FromComments(comments.RootElement, sess.Issue, workerLogins);
-                    if (blocker is not int number)
+                        blockers = BlockedBy.FromComments(comments.RootElement, sess.Issue, workerLogins);
+                    if (blockers.Count == 0)
                     {
                         await log.WriteLineAsync($"{DateTime.Now:T} {waitKey} is labelled {IssueLabels.WaitingOn} but has no blocked-by comment from the worker");
                         continue;
                     }
-                    blockedBy[waitKey] = number;
-                    var state = await github.BlockerStateAsync(folder, sess.Repo, number, CancellationToken.None);
-                    if (state == BlockerState.Open) continue;
+                    // The grid shows the first blocker that is still open. The worker waits until none is.
+                    var ended = new List<(int Number, BlockerState State)>();
+                    foreach (var number in blockers)
+                    {
+                        blockedBy[waitKey] = number;
+                        var state = await github.BlockerStateAsync(folder, sess.Repo, number, CancellationToken.None);
+                        if (state == BlockerState.Open) break;
+                        ended.Add((number, state));
+                    }
+                    if (ended.Count < blockers.Count) continue;
                     if (!resumed.Contains(waitKey))
                     {
                         try
                         {
-                            if (!await SendToSessionAsync(log, dryRun, waitKey, sess.CloudSessionId, BlockedBy.ResumeMessage(number, state))) continue;
+                            if (!await SendToSessionAsync(log, dryRun, waitKey, sess.CloudSessionId, BlockedBy.ResumeMessage(ended))) continue;
                         }
                         catch (CloudSessionGoneException gone)
                         {
