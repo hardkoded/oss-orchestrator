@@ -6,7 +6,10 @@ namespace OssOrchestrator.Tests;
 public class SessionGroupsTests
 {
     private static SessionStatus Session(int issue, string status = "cloud", int? blockedBy = null, int? pr = null, string prStatus = "pending", string repo = "o/a") =>
-        new() { Repo = repo, Issue = issue, Status = status, BlockedBy = blockedBy, PrNumber = pr, PrStatus = prStatus };
+        new() { Repo = repo, Issue = issue, Status = status, Blockers = blockedBy is int b ? [b] : [], PrNumber = pr, PrStatus = prStatus };
+
+    private static SessionStatus Waiting(int issue, params int[] blockers) =>
+        new() { Repo = "o/a", Issue = issue, Status = "waiting", Blockers = [.. blockers] };
 
     private static SessionBoard Build(params SessionStatus[] sessions) => SessionGroups.Build(sessions, []);
 
@@ -52,11 +55,45 @@ public class SessionGroupsTests
     }
 
     [Fact]
+    public void A_session_with_several_blockers_is_listed_under_the_first_and_counted_for_each()
+    {
+        var board = Build(Session(1, "blocked"), Session(2, "blocked"), Waiting(3, 1, 2, 9), Waiting(4, 3, 2));
+
+        var first = board.All.Single(n => n.Session.Issue == 1);
+        var second = board.All.Single(n => n.Session.Issue == 2);
+        Assert.Equal([1, 3, 4], first.Tree.Select(n => n.Session.Issue));
+        Assert.Equal([2], second.Tree.Select(n => n.Session.Issue));
+        Assert.Equal([3, 4], first.Held.Select(n => n.Session.Issue));
+        Assert.Equal([3, 4], second.Held.Select(n => n.Session.Issue).Order());
+        Assert.Equal([1, 2, null], board.All.Single(n => n.Session.Issue == 3).On.Select(b => b.Node?.Session.Issue));
+    }
+
+    [Fact]
+    public void A_ring_through_a_later_blocker_is_marked()
+    {
+        var board = Build(Session(1, "blocked"), Waiting(2, 1, 3), Waiting(3, 2));
+
+        Assert.Equal([1, 2, 3], Assert.Single(board.Roots).Tree.Select(n => n.Session.Issue));
+        Assert.Equal([false, true, true], board.All.Select(n => n.InCycle));
+        Assert.Equal([3], board.All.Single(n => n.Session.Issue == 2).Held.Select(n => n.Session.Issue));
+    }
+
+    [Fact]
+    public void A_session_whose_first_blocker_has_no_session_is_listed_under_it()
+    {
+        var board = Build(Session(1, "blocked"), Waiting(2, 9, 1));
+
+        Assert.Equal(9, Assert.Single(board.Outside).Number);
+        Assert.Equal(1, Assert.Single(board.In(SessionGroup.NeedsAnswer)).Blocks);
+    }
+
+    [Fact]
     public void A_blocker_can_be_named_by_its_PR_number_but_only_in_the_same_repo()
     {
         var board = Build(Session(1, pr: 40, repo: "o/b"), Session(2, pr: 40), Session(3, "waiting", blockedBy: 40));
 
         Assert.Equal(3, Assert.Single(board.All.Single(n => n.Session.Issue == 2).Waiting).Session.Issue);
+        Assert.Single(Build(Session(2, pr: 40), Waiting(3, 2, 40)).All[1].On);
         Assert.Empty(board.All.Single(n => n.Session.Issue == 1).Waiting);
     }
 

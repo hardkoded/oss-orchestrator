@@ -50,9 +50,29 @@
         { InProgress: true } => ("in progress, no session", false),
         _ => ("free in the backlog", true),
     };
+    IssueStatus? OpenIssue(string repo, int number) =>
+        state?.Issues.FirstOrDefault(r => r.Repo == repo)?.Items.FirstOrDefault(i => i.Number == number);
+    // The first blocker is the row or heading above, which has its own warning. The others get one here.
+    bool Unattended(SessionNode n, int index) =>
+        index > 0 && n.On[index].Node is null && BlockerText(OpenIssue(n.Session.Repo, n.On[index].Number)).Nobody;
     string? WaitsOn(SessionNode n) => n.Group != SessionGroup.Waiting ? null
-        : n.Session.BlockedBy is int b ? $"waits on #{b}"
-        : "waiting, blocker unknown";
+        : n.On.Count == 0 ? "waiting, blocker unknown"
+        : "waits on " + string.Join(", ", n.On.Select((b, i) => $"#{b.Number}{(Unattended(n, i) ? " (nobody works on it)" : "")}"));
+
+    async Task BlockerStep(string repo, int number, SessionNode? node)
+    {
+        <li>
+            @if (node is not null)
+            {
+                <a href="#sessions/@Key(node.Session)">#@node.Session.Issue @node.Session.Title <span class="chip">@Name(node.Group)</span></a>
+            }
+            else
+            {
+                var (text, nobody) = BlockerText(OpenIssue(repo, number));
+                <a href="@IssueUrl(repo, number)" target="_blank" rel="noopener">#@number, no session: @text ↗ @if (nobody) { <span class="chip warn">⚠ nobody works on it</span> }</a>
+            }
+        </li>
+    }
 
     async Task Row(SessionNode n)
     {
@@ -97,7 +117,7 @@
         if (rows.Count > 0)
         {
             <section class="group">
-                <h2><i class="sw @Color(g)"></i>@Name(g) · @(g == SessionGroup.Waiting ? rows.Sum(n => 1 + n.Blocks) : rows.Count)</h2>
+                <h2><i class="sw @Color(g)"></i>@Name(g) · @(g == SessionGroup.Waiting ? rows.Sum(n => n.Tree.Count()) : rows.Count)</h2>
                 <ul class="rows">
                     @foreach (var n in rows)
                     {
@@ -242,7 +262,7 @@
                 @{
                     var busy = new[] { SessionGroup.Fixing, SessionGroup.Working, SessionGroup.Checks }.SelectMany(board.In).ToList();
                     var stuck = busy.SelectMany(n => n.Tree).Count(n => SessionGroups.MayBeStuck(n.Session, now));
-                    var held = busy.Sum(n => n.Blocks);
+                    var held = busy.SelectMany(n => n.Held).Distinct().Count();
                 }
                 @if (busy.Count > 0)
                 {
@@ -260,7 +280,7 @@
                 @if (board.Outside.Count > 0)
                 {
                     <section class="group">
-                        <h2><i class="sw wait"></i>Waiting on others · @board.Outside.Sum(o => o.Waiting.Count)</h2>
+                        <h2><i class="sw wait"></i>Waiting on others · @board.Outside.Sum(o => o.Waiting.Sum(n => n.Tree.Count()))</h2>
                         <ul class="rows">
                             @foreach (var o in board.Outside)
                             {
@@ -391,31 +411,41 @@
                             @{ var step = n; }
                             @while (step.Blocker is { } up)
                             {
-                                <li><a href="#sessions/@Key(up.Session)">#@up.Session.Issue @up.Session.Title <span class="chip">@Name(up.Group)</span></a></li>
+                                await BlockerStep(s.Repo, up.Session.Issue, up);
                                 step = up;
                             }
-                            @if (step.InCycle)
+                            @if (step.Group == SessionGroup.Waiting)
                             {
-                                <li><span>#@step.Session.BlockedBy, so these wait on each other</span></li>
-                            }
-                            else if (step.Group == SessionGroup.Waiting)
-                            {
-                                if (step.Session.BlockedBy is int outside)
+                                if (step.On.Count == 0)
                                 {
-                                    <li><a href="@IssueUrl(step.Session.Repo, outside)" target="_blank" rel="noopener">#@outside, no session ↗</a></li>
+                                    <li><span>Blocker unknown</span></li>
+                                }
+                                else if (step.On[0].Node is null)
+                                {
+                                    await BlockerStep(s.Repo, step.On[0].Number, null);
                                 }
                                 else
                                 {
-                                    <li><span>Blocker unknown</span></li>
+                                    <li><span>#@step.On[0].Number, so these wait on each other</span></li>
                                 }
                             }
                         </ol>
                     }
-                    @if (n.Waiting.Count > 0)
+                    @if (n.On.Count > 1)
+                    {
+                        <h3>Also waits on</h3>
+                        <ul class="chain">
+                            @foreach (var (number, node) in n.On.Skip(1))
+                            {
+                                await BlockerStep(s.Repo, number, node);
+                            }
+                        </ul>
+                    }
+                    @if (n.Blocks > 0)
                     {
                         <h3>Blocks @n.Blocks</h3>
                         <ul class="chain">
-                            @foreach (var w in n.Tree.Skip(1))
+                            @foreach (var w in n.Held)
                             {
                                 <li><a href="#sessions/@Key(w.Session)">#@w.Session.Issue @w.Session.Title</a></li>
                             }

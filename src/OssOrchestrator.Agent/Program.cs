@@ -133,7 +133,7 @@ while (true)
         // A worker that waits on another issue or PR of its repo is told when that is merged or closed, then its label is removed.
         // Only comments by the workers' own account name the blocker. Without a known login nothing is read.
         await EnsureWorkerLoginAsync();
-        var blockedBy = new Dictionary<string, int>();
+        var blockedBy = new Dictionary<string, List<int>>();
         if (workerLogins.Count > 0)
         {
             for (var i = 0; i < shown.Count; i++)
@@ -152,21 +152,27 @@ while (true)
                         await log.WriteLineAsync($"{DateTime.Now:T} {waitKey} is labelled {IssueLabels.WaitingOn} but has no blocked-by comment from the worker");
                         continue;
                     }
-                    // The grid shows the first blocker that is still open. The worker waits until none is.
-                    var ended = new List<(int Number, BlockerState State)>();
+                    // The dashboard shows the blockers that are still open. The worker waits until none is.
+                    blockedBy[waitKey] = [.. blockers];
+                    var states = new List<(int Number, BlockerState State)>();
                     foreach (var number in blockers)
                     {
-                        blockedBy[waitKey] = number;
-                        var state = await github.BlockerStateAsync(folder, sess.Repo, number, CancellationToken.None);
-                        if (state == BlockerState.Open) break;
-                        ended.Add((number, state));
+                        var state = BlockerState.Open;   // when GitHub cannot say, the worker keeps waiting
+                        try
+                        {
+                            state = await github.BlockerStateAsync(folder, sess.Repo, number, CancellationToken.None);
+                            if (state == BlockerState.Open) resumed.Remove(waitKey);   // it waits again, so it must be told again
+                        }
+                        catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not check blocker #{number} of {waitKey}: {e.Message}"); }
+                        states.Add((number, state));
                     }
-                    if (ended.Count < blockers.Count) continue;
+                    var open = states.Where(b => b.State == BlockerState.Open).Select(b => b.Number).ToList();
+                    if (open.Count > 0) { blockedBy[waitKey] = open; continue; }
                     if (!resumed.Contains(waitKey))
                     {
                         try
                         {
-                            if (!await SendToSessionAsync(log, dryRun, waitKey, sess.CloudSessionId, BlockedBy.ResumeMessage(ended))) continue;
+                            if (!await SendToSessionAsync(log, dryRun, waitKey, sess.CloudSessionId, BlockedBy.ResumeMessage(states))) continue;
                         }
                         catch (CloudSessionGoneException gone)
                         {
@@ -424,7 +430,7 @@ while (true)
                     Issue = sess.Issue,
                     Title = title,
                     Status = sess.Status,
-                    BlockedBy = blockedBy.TryGetValue($"{sess.Repo}#{sess.Issue}", out var blockedNumber) ? blockedNumber : null,
+                    Blockers = blockedBy.GetValueOrDefault($"{sess.Repo}#{sess.Issue}") ?? [],
                     PrNumber = pr?.Number,
                     PrUrl = pr?.Url,
                     PrConflict = pr?.Mergeable == "CONFLICTING",
