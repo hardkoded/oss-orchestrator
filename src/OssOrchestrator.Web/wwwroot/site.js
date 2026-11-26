@@ -6,7 +6,7 @@
     var toast = document.getElementById("toast");
     var sheet = document.getElementById("sheet");
     var filters = { q: "", repo: "all", state: "free" };
-    var busyOpen = false, posting = false, openedHere = false, touched = 0, poll, toastTimer;
+    var busyOpen = false, posting = 0, sending = Promise.resolve(), openedHere = false, touched = 0, poll, toastTimer;
 
     function all(selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); }
 
@@ -160,6 +160,8 @@
             if (!response.ok) throw new Error(response.status);
             var next = new DOMParser().parseFromString(await response.text(), "text/html").getElementById("app");
             if (!next) throw new Error("not the dashboard");
+            // A refresh never replaces a number that is typed but not sent yet.
+            if (!body && all("input[data-cmd]").some(function (box) { return box.value !== box.defaultValue; })) return;
             swap(next);
         } catch (e) {
             if (e.name !== "AbortError" || slow) say(body ? "Could not confirm the command. Check Activity." : "Could not update. Showing old data.");
@@ -173,6 +175,15 @@
         // A replaced input closes the phone keyboard or an open list, so the refresh waits while one was just used.
         var using = document.activeElement.matches("input, select") && Date.now() - touched < 30000;
         if (!document.hidden && !posting && !using) load();
+    }
+
+    // Commands are sent one after the other, each with the antiforgery token that the form holds.
+    function send(command) {
+        posting++;
+        var body = new FormData(document.getElementById("act"));
+        body.set("cmd", command);
+        sending = sending.then(function () { return load(body); }).finally(function () { posting--; });
+        return sending;
     }
 
     function closeSheet() {
@@ -203,15 +214,30 @@
         if (e.target.id !== "act") return;
         e.preventDefault();
         var button = e.submitter;
-        if (posting || !button || (button.dataset.confirm && !confirm(button.dataset.confirm.trim()))) return;
-        posting = true;
-        var body = new FormData(e.target);
-        body.set(button.name, button.value);
+        if (!button || (button.dataset.confirm && !confirm(button.dataset.confirm.trim()))) return;
+        // While a command is on its way, − and + still count from the old number, so they are left out.
+        if (posting && /^(limit|sessions)\|/.test(button.value)) return;
         if (sheet.contains(button)) closeSheet();
         button.disabled = true;
-        await load(body);
+        await send(button.value);
         button.disabled = false;
-        posting = false;
+    });
+
+    // A typed number is sent on Enter, or when the reader leaves the box.
+    document.addEventListener("change", function (e) {
+        var box = e.target;
+        if (!box.dataset.cmd) return;
+        // The old number comes back when the new one is wrong or could not be sent.
+        var restore = function () { box.value = box.defaultValue; };
+        var number = /^\d+$/.test(box.value) ? Number(box.value) : 0;
+        if (number >= 1 && number <= Number(box.dataset.max)) return send(box.dataset.cmd + number).then(restore);
+        say(box.getAttribute("aria-label") + " must be a number from 1 to " + box.dataset.max + ".");
+        restore();
+    });
+
+    // Enter ends the typing: the reader leaves the box, which sends the number.
+    document.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && e.target.dataset.cmd) e.target.blur();
     });
 
     document.addEventListener("focusin", function () { touched = Date.now(); });

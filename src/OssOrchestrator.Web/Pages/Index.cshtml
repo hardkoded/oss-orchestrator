@@ -216,13 +216,13 @@
                 <div class="repo stepper">
                     <span>@(slotsPending ? "Waiting for the agent" : "Work slots")</span>
                     <button form="act" name="cmd" value="limit|||@(config.MaxTotal - 1)" aria-label="Fewer work slots" disabled="@(limitWaits || config.MaxTotal <= 1)">−</button>
-                    <b>@config.MaxTotal</b>
+                    <input id="work-slots" type="text" inputmode="numeric" data-max="@config.MaxSessions" value="@config.MaxTotal" data-cmd="limit|||" aria-label="Work slots" disabled="@limitWaits" />
                     <button form="act" name="cmd" value="limit|||@(config.MaxTotal + 1)" aria-label="More work slots" disabled="@(limitWaits || config.MaxTotal >= config.MaxSessions)">+</button>
                 </div>
                 <div class="repo stepper">
                     <span>@(maxPending ? "Waiting for the agent" : "Max sessions")</span>
                     <button form="act" name="cmd" value="sessions|||@(config.MaxSessions - 1)" aria-label="Fewer max sessions" disabled="@(limitWaits || config.MaxSessions <= 1)">−</button>
-                    <b>@config.MaxSessions</b>
+                    <input id="max-sessions" type="text" inputmode="numeric" data-max="20" value="@config.MaxSessions" data-cmd="sessions|||" aria-label="Max sessions" disabled="@limitWaits" />
                     <button form="act" name="cmd" value="sessions|||@(config.MaxSessions + 1)" aria-label="More max sessions" disabled="@(limitWaits || config.MaxSessions >= 20)">+</button>
                 </div>
             }

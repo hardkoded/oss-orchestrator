@@ -45,7 +45,9 @@ body[data-view=repos] main { display:none; }
 .switch i::after { content:""; display:block; width:18px; height:18px; border-radius:50%; background:#fff; transition:translate .15s; }
 .switch[aria-checked=true] i { background:var(--button); }
 .switch[aria-checked=true] i::after { translate:16px; }
-.stepper { grid-template-columns:1fr auto auto auto; align-items:center; gap:10px; }
+.stepper { grid-template-columns:1fr auto auto auto; align-items:center; gap:6px; }
+.stepper input { width:40px; padding:0 4px; text-align:center; font-weight:700; }
+.stepper input:disabled { opacity:.55; }
 
 .capacity { padding:14px 14px 4px; }
 .bar { display:flex; gap:2px; height:8px; border-radius:4px; overflow:hidden; background:var(--line); }
