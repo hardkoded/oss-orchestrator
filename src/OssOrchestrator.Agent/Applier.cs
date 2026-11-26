@@ -16,12 +16,21 @@ public static class Applier
                 foreach (var r in config.Repos) r.Paused = false;
                 return "resumed all";
             case "limit":
-                if (cmd.Value is { ValueKind: JsonValueKind.Number } v && v.TryGetInt32(out var limit) && limit is >= 1 and <= 20)
+                if (cmd.Value is { ValueKind: JsonValueKind.Number } v && v.TryGetInt32(out var limit) && limit is >= 1 && limit <= config.MaxSessions)
                 {
                     config.MaxTotal = limit;
                     return $"limit set to {limit}";
                 }
-                return "limit must be between 1 and 20";
+                return $"limit must be between 1 and {config.MaxSessions}";
+            case "sessions":
+                if (cmd.Value is { ValueKind: JsonValueKind.Number } s && s.TryGetInt32(out var max) && max is >= 1 and <= Planner.GlobalCap)
+                {
+                    // The work slots never stay above the limit on all sessions.
+                    config.MaxSessions = max;
+                    config.MaxTotal = Math.Min(config.MaxTotal, max);
+                    return $"max sessions set to {max}";
+                }
+                return $"max sessions must be between 1 and {Planner.GlobalCap}";
             case "pause":
             case "resume":
             case "auto":

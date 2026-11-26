@@ -8,7 +8,7 @@ public class PlannerTests
 
     private static PlanInput Input(int running = 0, RepoSettings[]? repos = null, IssueInfo[]? issues = null,
         string[]? ignored = null, Dictionary<string, long>? launched = null) => new(
-            MaxTotal: 6, Running: running, Total: running,
+            MaxTotal: 6, Running: running, Total: running, MaxSessions: 20,
             Repos: repos ?? [Auto],
             IssuesByRepo: new Dictionary<string, IReadOnlyList<IssueInfo>> { ["o/r"] = issues ?? [new(1, "a", false), new(2, "b", false)] },
             Ignored: new HashSet<string>(ignored ?? []),
@@ -48,11 +48,11 @@ public class PlannerTests
     }
 
     [Fact]
-    public void Freed_sessions_still_count_toward_the_global_cap_of_20()
+    public void Freed_sessions_still_count_toward_max_sessions()
     {
-        var input = MultiRepo(slots: 20) with { Running = 5, Total = 19 };
+        var input = MultiRepo(slots: 10) with { Running = 5, Total = 11, MaxSessions = 12 };
         Assert.Single(Planner.Plan(input));
-        Assert.Empty(Planner.Plan(input with { Total = 20 }));
+        Assert.Empty(Planner.Plan(input with { Total = 12 }));
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class PlannerTests
     {
         var names = new[] { "o/a", "o/b", "o/c", "o/d" };
         return new PlanInput(
-            MaxTotal: slots, Running: 0, Total: 0,
+            MaxTotal: slots, Running: 0, Total: 0, MaxSessions: 20,
             Repos: names.Select(n => new RepoSettings(n, @"C:\" + n[2..], Paused: false, Auto: true)).ToList(),
             IssuesByRepo: names.ToDictionary(n => n, n => (IReadOnlyList<IssueInfo>)[new IssueInfo(1, "x", false), new IssueInfo(2, "y", false)]),
             Ignored: new HashSet<string>(),

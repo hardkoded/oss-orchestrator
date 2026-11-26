@@ -230,7 +230,7 @@ while (true)
 
         // A session that waits on a human frees its slot: it asked a question, or its PR is ready or still building (no
         // failed check, no conflict). The slot comes back when the answer arrives or the PR goes red or conflicts again, so the total
-        // can go above the limit, but never above Planner.GlobalCap.
+        // can go above the limit, but no new issue is taken at config.MaxSessions.
         var freed = shown.Where(s => Planner.FreesSlot(s.Status, prs.GetValueOrDefault(s.Repo)?.FirstOrDefault(p => p.Issue == s.Issue))).ToList();
         var ready = freed.Count(s => s.Status is not ("blocked" or "waiting"));
         var running = shown.Count - freed.Count;
@@ -288,6 +288,7 @@ while (true)
             MaxTotal: config.MaxTotal,
             Running: running,
             Total: shown.Count,
+            MaxSessions: config.MaxSessions,
             Repos: config.Repos.Select(r => new RepoSettings(r.Repo, r.Folder, r.Paused, r.Auto)).ToList(),
             IssuesByRepo: issues,
             Ignored: config.Repos.SelectMany(r => r.Ignored.Select(n => $"{r.Repo}#{n}")).ToHashSet(),

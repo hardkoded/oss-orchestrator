@@ -5,7 +5,7 @@ namespace OssOrchestrator.Web;
 /// <summary>Plain words for the commands the dashboard queued.</summary>
 public static class Activity
 {
-    private static readonly string[] Problems = ["could not", "unknown", "missing", "limit must", "dry run"];
+    private static readonly string[] Problems = ["could not", "unknown", "missing", "limit must", "max sessions must", "dry run"];
 
     public static string Describe(CommandDoc c)
     {
@@ -21,6 +21,7 @@ public static class Activity
             "resume" => $"Resume {repo}",
             "auto" => $"{(string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ? "Take" : "Stop taking")} new issues from {repo}",
             "limit" => $"Set work slots to {value}",
+            "sessions" => $"Set max sessions to {value}",
             "ignore" => $"Ignore {issue}",
             "restore" => $"Restore {issue}",
             "block_session" => $"Park {issue}",

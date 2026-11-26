@@ -21,6 +21,8 @@ public sealed class ConfigDoc
 {
     public string Id { get; set; } = "config";
     public int MaxTotal { get; set; } = 6;
+    /// <summary>Limit on all sessions, freed ones included.</summary>
+    public int MaxSessions { get; set; } = 20;
     public List<RepoDoc> Repos { get; set; } = [];
 }
 

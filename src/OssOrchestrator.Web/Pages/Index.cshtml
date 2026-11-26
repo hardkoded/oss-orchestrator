@@ -210,12 +210,20 @@
             }
             @if (config is not null)
             {
-                var limitWaits = Model.IsPending(null, null, "limit");
+                var slotsPending = Model.IsPending(null, null, "limit");
+                var maxPending = Model.IsPending(null, null, "sessions");
+                var limitWaits = slotsPending || maxPending;
                 <div class="repo stepper">
-                    <span>@(limitWaits ? "Waiting for the agent" : "Work slots")</span>
+                    <span>@(slotsPending ? "Waiting for the agent" : "Work slots")</span>
                     <button form="act" name="cmd" value="limit|||@(config.MaxTotal - 1)" aria-label="Fewer work slots" disabled="@(limitWaits || config.MaxTotal <= 1)">−</button>
                     <b>@config.MaxTotal</b>
-                    <button form="act" name="cmd" value="limit|||@(config.MaxTotal + 1)" aria-label="More work slots" disabled="@(limitWaits || config.MaxTotal >= 20)">+</button>
+                    <button form="act" name="cmd" value="limit|||@(config.MaxTotal + 1)" aria-label="More work slots" disabled="@(limitWaits || config.MaxTotal >= config.MaxSessions)">+</button>
+                </div>
+                <div class="repo stepper">
+                    <span>@(maxPending ? "Waiting for the agent" : "Max sessions")</span>
+                    <button form="act" name="cmd" value="sessions|||@(config.MaxSessions - 1)" aria-label="Fewer max sessions" disabled="@(limitWaits || config.MaxSessions <= 1)">−</button>
+                    <b>@config.MaxSessions</b>
+                    <button form="act" name="cmd" value="sessions|||@(config.MaxSessions + 1)" aria-label="More max sessions" disabled="@(limitWaits || config.MaxSessions >= 20)">+</button>
                 </div>
             }
         </aside>
@@ -231,10 +239,11 @@
                         (Color: "checks", Label: "in checks", Count: board.Count(SessionGroup.Checks)),
                         (Color: "wait", Label: "waiting", Count: board.Count(SessionGroup.Waiting)),
                     }.Where(x => x.Count > 0 || x.Color != "wait").ToList();
-                    var cap = Math.Max(20, board.All.Count);
+                    var maxSessions = config?.MaxSessions ?? 20;
+                    var cap = Math.Max(maxSessions, board.All.Count);
                 }
                 <div class="capacity">
-                    <div class="bar" role="img" aria-label="@board.All.Count of 20 sessions open">
+                    <div class="bar" role="img" aria-label="@board.All.Count of @maxSessions sessions open">
                         @foreach (var x in segments)
                         {
                             <i class="@x.Color" style="width:@((x.Count * 100.0 / cap).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></i>
@@ -248,7 +257,7 @@
                     </p>
                     <p class="legend">
                         <span><b>@(state?.Running ?? 0) of @(state?.MaxTotal ?? 0)</b> work slots</span>
-                        <span><b>@board.All.Count of 20</b> sessions</span>
+                        <span><b>@board.All.Count of @maxSessions</b> sessions</span>
                         <span><b>@(state?.ClosedLast24h ?? 0)</b> closed in 24h</span>
                     </p>
                 </div>

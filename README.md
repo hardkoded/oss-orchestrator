@@ -5,7 +5,7 @@ Orchestrates Claude Code sessions, one per GitHub issue, with a dashboard.
 ## Parts
 
 - **Agent** (`src/OssOrchestrator.Agent`): runs locally. Wakes when GitHub reports a change (and polls every 10 minutes as a safety net), launches Claude sessions, watches PRs and CI, closes finished sessions, and reads commands from the queue. Claude sessions have to run on the machine that has the repos. It sends messages to cloud sessions with the Claude profile in `~/.claude-personal`, which must be signed in.
-- **Web** (`src/OssOrchestrator.Web`): ASP.NET Core (Razor Pages) dashboard for desktop and phone. Shows the sessions that need you first, with PR status, the backlog and recent commands, and sends commands (pause, take new issues, park, limit). It has no GitHub credentials.
+- **Web** (`src/OssOrchestrator.Web`): ASP.NET Core (Razor Pages) dashboard for desktop and phone. Shows the sessions that need you first, with PR status, the backlog and recent commands, and sends commands (pause, take new issues, park, work slots, max sessions). It has no GitHub credentials.
 - **Queue**: Azure Storage Queue (web to agent commands, agent to web state).
 - **Database**: Azure Cosmos DB free tier. Containers: `config`, `commands`, `state`, `events`.
 - **Webhook**: GitHub calls `POST /webhooks/github` on the web app. It checks the signature and records the event in `events`. The agent reads that container through the change feed and runs a pass right away. The pass reads the real state from GitHub, so the event only says "look now".

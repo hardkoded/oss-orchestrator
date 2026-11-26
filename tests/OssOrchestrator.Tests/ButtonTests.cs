@@ -36,6 +36,7 @@ public class ButtonTests
     [InlineData(null)]
     [InlineData("drop_database")]
     [InlineData("limit|||21")]
+    [InlineData("sessions|||21")]
     [InlineData("take|o/unknown||true")]
     public void A_bad_button_queues_nothing(string? button)
     {
