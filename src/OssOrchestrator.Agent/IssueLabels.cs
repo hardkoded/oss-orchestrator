@@ -11,6 +11,9 @@ public static class IssueLabels
     /// <summary>Set by a cloud worker when it has asked a question on the issue. The worker removes it once it has the answer.</summary>
     public const string NeedsAnswer = "needs-answer";
 
+    /// <summary>Set by a cloud worker while it waits for another issue or PR of the repo, named in a blocked-by comment. The agent removes it when the blocker is merged or closed.</summary>
+    public const string WaitingOn = "waiting-on";
+
     /// <summary>Set by a person. The issue is shown on the dashboard but the orchestrator never takes it.</summary>
     public const string Blocked = "blocked";
 
@@ -21,6 +24,10 @@ public static class IssueLabels
     /// <summary>Removes the in-progress label once the issue's PR is merged or closed.</summary>
     public static Task RemoveInProgressAsync(string folder, int issue, CancellationToken ct) =>
         EditAsync(folder, issue, "--remove-label", InProgress, ct);
+
+    /// <summary>Removes the waiting-on label once the worker has been told its blocker is done.</summary>
+    public static Task RemoveWaitingOnAsync(string folder, int issue, CancellationToken ct) =>
+        EditAsync(folder, issue, "--remove-label", WaitingOn, ct);
 
     /// <summary>Adds the blocked label, set by a dashboard Block, so the orchestrator never takes the issue again.</summary>
     public static Task MarkBlockedAsync(string folder, int issue, CancellationToken ct) =>

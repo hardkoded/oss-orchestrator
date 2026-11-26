@@ -26,6 +26,8 @@ catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} event feed not
 var nudgeEvery = TimeSpan.FromMinutes(30);
 // "repo#issue" -> when a comment message last failed to reach its session, so an unreachable one is retried after nudgeEvery, not every pass.
 var commentTried = new Dictionary<string, DateTimeOffset>();
+// "repo#issue" of workers already told their blocker is done, whose waiting-on label could not be removed yet. They are not told twice.
+var resumed = new HashSet<string>();
 
 await log.WriteLineAsync($"orc agent started (dryRun={dryRun}, safety-net pass every {intervalSec}s, wakes on GitHub events, database = source of truth)");
 
@@ -61,6 +63,7 @@ while (true)
         var finished = new Dictionary<string, IReadOnlyDictionary<int, PrInfo>>();
         var inProgress = new Dictionary<string, IReadOnlySet<int>>();
         var needsAnswer = new Dictionary<string, IReadOnlySet<int>>();
+        var waitingOn = new Dictionary<string, IReadOnlySet<int>>();
         var errors = new Dictionary<string, string>();
         var closedLast24h = 0;
         foreach (var repo in config.Repos)
@@ -78,6 +81,8 @@ while (true)
             try { inProgress[repo.Repo] = await github.InProgressIssuesAsync(repo.Folder, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
             try { needsAnswer[repo.Repo] = await github.IssuesWithLabelAsync(repo.Folder, IssueLabels.NeedsAnswer, CancellationToken.None); }
+            catch (Exception e) { errors[repo.Repo] = e.Message; }
+            try { waitingOn[repo.Repo] = await github.IssuesWithLabelAsync(repo.Folder, IssueLabels.WaitingOn, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
         }
 
@@ -117,16 +122,67 @@ while (true)
                 }
                 // A cloud worker has no terminal to read, so it reports a question through the needs-answer label.
                 var waiting = needsAnswer.GetValueOrDefault(repo.Repo)?.Contains(number) ?? false;
-                shown.Add(new SessionInfo(repo.Repo, number, waiting ? "blocked" : "cloud", doc.Id, doc.Url));
+                var blocked = waitingOn.GetValueOrDefault(repo.Repo)?.Contains(number) ?? false;
+                shown.Add(new SessionInfo(repo.Repo, number, waiting ? "blocked" : blocked ? "waiting" : "cloud", doc.Id, doc.Url));
             }
         }
         if (cloudChanged) await db.SaveConfigAsync(config);
+
+        // A worker that waits on another issue or PR of its repo is told when that is merged or closed, then its label is removed.
+        // Only comments by the workers' own account name the blocker. Without a known login nothing is read.
+        await EnsureWorkerLoginAsync();
+        var blockedBy = new Dictionary<string, int>();
+        if (workerLogins.Count > 0)
+        {
+            for (var i = 0; i < shown.Count; i++)
+            {
+                var sess = shown[i];
+                if (sess.Status != "waiting") continue;
+                var waitKey = $"{sess.Repo}#{sess.Issue}";
+                var folder = config.Repos.First(r => r.Repo == sess.Repo).Folder;
+                try
+                {
+                    int? blocker;
+                    using (var comments = await github.IssueCommentsAsync(folder, sess.Issue, CancellationToken.None))
+                        blocker = BlockedBy.FromComments(comments.RootElement, sess.Issue, workerLogins);
+                    if (blocker is not int number)
+                    {
+                        await log.WriteLineAsync($"{DateTime.Now:T} {waitKey} is labelled {IssueLabels.WaitingOn} but has no blocked-by comment from the worker");
+                        continue;
+                    }
+                    blockedBy[waitKey] = number;
+                    var state = await github.BlockerStateAsync(folder, sess.Repo, number, CancellationToken.None);
+                    if (state == BlockerState.Open) continue;
+                    if (!resumed.Contains(waitKey))
+                    {
+                        try
+                        {
+                            if (!await SendToSessionAsync(log, dryRun, waitKey, sess.CloudSessionId, BlockedBy.ResumeMessage(number, state))) continue;
+                        }
+                        catch (CloudSessionGoneException gone)
+                        {
+                            await LogSessionGoneAsync(log, waitKey, sess.CloudSessionId, gone);
+                            continue;
+                        }
+                        if (dryRun) continue;
+                        resumed.Add(waitKey);
+                    }
+                    // The label goes only after the worker was told, so a failed message is sent again on the next pass.
+                    // If the removal fails, only the removal is tried again.
+                    await IssueLabels.RemoveWaitingOnAsync(folder, sess.Issue, CancellationToken.None);
+                    resumed.Remove(waitKey);
+                    blockedBy.Remove(waitKey);
+                    shown[i] = sess with { Status = "cloud" };
+                }
+                catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not check the blocker of {waitKey}: {e.Message}"); }
+            }
+        }
 
         // A session that waits on a human frees its slot: it asked a question, or its PR is ready or still building (no
         // failed check, no conflict). The slot comes back when the answer arrives or the PR goes red or conflicts again, so the total
         // can go above the limit, but never above Planner.GlobalCap.
         var freed = shown.Where(s => Planner.FreesSlot(s.Status, prs.GetValueOrDefault(s.Repo)?.FirstOrDefault(p => p.Issue == s.Issue))).ToList();
-        var ready = freed.Count(s => s.Status != "blocked");
+        var ready = freed.Count(s => s.Status is not ("blocked" or "waiting"));
         var running = shown.Count - freed.Count;
 
         // Free the in-progress label when the issue's PR is merged or closed. Only when this pass read both the open
@@ -276,11 +332,7 @@ while (true)
         }
         // A worker is told once about each new comment by someone else on its PR, through the same cloud session.
         // The message names no comment text: that is untrusted, and the worker reads it with gh.
-        if (workerLogins.Count == 0)
-        {
-            try { workerLogins.Add(await github.CurrentLoginAsync(CancellationToken.None)); }
-            catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read the gh login, so workers are not told about new comments: {e.Message}"); }
-        }
+        await EnsureWorkerLoginAsync();
         if (workerLogins.Count > 0)
         {
             foreach (var sess in shown)
@@ -363,6 +415,7 @@ while (true)
                     Issue = sess.Issue,
                     Title = title,
                     Status = sess.Status,
+                    BlockedBy = blockedBy.TryGetValue($"{sess.Repo}#{sess.Issue}", out var blockedNumber) ? blockedNumber : null,
                     PrNumber = pr?.Number,
                     PrUrl = pr?.Url,
                     PrConflict = pr?.Mergeable == "CONFLICTING",
@@ -396,6 +449,14 @@ while (true)
     }
 
     await WaitForNextPassAsync(db, feed, intervalSec, log);
+}
+
+// The login is looked up again each pass until it is known.
+async Task EnsureWorkerLoginAsync()
+{
+    if (workerLogins.Count > 0) return;
+    try { workerLogins.Add(await github.CurrentLoginAsync(CancellationToken.None)); }
+    catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read the gh login, so workers are not told about new comments or finished blockers: {e.Message}"); }
 }
 
 // Blocks an issue and releases its session. The blocked label is set first: if that fails, the session keeps running.

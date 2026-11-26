@@ -44,6 +44,7 @@ public class PlannerTests
     public void A_session_that_asked_a_question_frees_its_slot_even_without_a_PR()
     {
         Assert.True(Planner.FreesSlot("blocked", null));
+        Assert.True(Planner.FreesSlot("waiting", null));
     }
 
     [Fact]

@@ -12,6 +12,7 @@
     {
         "working" => "working",
         "blocked" => "needs your answer",
+        "waiting" => "waiting on a blocker",
         "done" => "finished",
         "idle" => "idle",
         "cloud" => "cloud session",
@@ -27,7 +28,7 @@
     string SessionClass(string s) => s switch
     {
         "working" or "cloud" => "info",
-        "blocked" => "warn",
+        "blocked" or "waiting" => "warn",
         "done" => "ok",
         _ => "",
     };
@@ -100,7 +101,7 @@
         else
         {
             <table>
-                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Started</th><th>Elapsed</th><th>Session</th><th>Cloud</th><th>PR</th><th>PR status</th><th></th></tr></thead>
+                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Started</th><th>Elapsed</th><th>Session</th><th>Blocked by</th><th>Cloud</th><th>PR</th><th>PR status</th><th></th></tr></thead>
                 <tbody>
                 @foreach (var s in state.Sessions)
                 {
@@ -111,6 +112,10 @@
                         <td class="muted">@(s.StartedAt is { } st ? st.ToLocalTime().ToString("MM-dd HH:mm") : "-")</td>
                         <td class="muted">@(s.StartedAt is { } st2 ? Elapsed(DateTimeOffset.UtcNow - st2) : "-")</td>
                         <td><span class="pill @SessionClass(s.Status)">@StatusText(s.Status)</span></td>
+                        <td>
+                            @if (s.BlockedBy is int blocker) { <a href="https://github.com/@s.Repo/issues/@blocker" target="_blank" rel="noopener">#@blocker</a> }
+                            else { <span class="muted">-</span> }
+                        </td>
                         <td>
                             @if (s.CloudSessionUrl is not null) { <a href="@s.CloudSessionUrl" target="_blank" rel="noopener">View session</a> }
                             else { <span class="muted">local</span> }

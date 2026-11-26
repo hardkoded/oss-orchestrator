@@ -68,6 +68,8 @@ public sealed class SessionStatus
     public int Issue { get; set; }
     public string Title { get; set; } = "";
     public string Status { get; set; } = "";
+    /// <summary>The issue or PR of the same repo a waiting worker is blocked by.</summary>
+    public int? BlockedBy { get; set; }
     public int? PrNumber { get; set; }
     public string? PrUrl { get; set; }
     public bool PrConflict { get; set; }

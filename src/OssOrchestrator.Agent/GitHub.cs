@@ -158,6 +158,27 @@ public sealed class GitHub
         return doc.RootElement.EnumerateArray().Count(e => e.GetProperty("closedAt").GetDateTimeOffset() > since);
     }
 
+    /// <summary>The raw gh JSON of an issue with its comments, oldest first.</summary>
+    public async Task<JsonDocument> IssueCommentsAsync(string folder, int issue, CancellationToken ct) =>
+        JsonDocument.Parse(await RunAsync(folder, ct, "issue", "view", issue.ToString(), "--json", "comments"));
+
+    /// <summary>Whether an issue or PR of the repo is still open. The issues API answers for both, and tells a merged PR from a closed one.</summary>
+    public async Task<BlockerState> BlockerStateAsync(string folder, string repo, int number, CancellationToken ct)
+    {
+        using var doc = JsonDocument.Parse(await RunAsync(folder, ct, "api", $"repos/{repo}/issues/{number}"));
+        return ReadBlockerState(doc.RootElement);
+    }
+
+    public static BlockerState ReadBlockerState(JsonElement issue)
+    {
+        if (issue.GetProperty("state").GetString() == "open") return BlockerState.Open;
+        // An issue closed by a merged PR has the reason "completed". A PR itself carries merged_at.
+        var completed = issue.TryGetProperty("state_reason", out var reason) && reason.GetString() == "completed";
+        var merged = issue.TryGetProperty("pull_request", out var pr) && pr.ValueKind == JsonValueKind.Object
+            && pr.TryGetProperty("merged_at", out var at) && at.ValueKind == JsonValueKind.String;
+        return completed || merged ? BlockerState.Done : BlockerState.Closed;
+    }
+
     /// <summary>True while the issue is open. Used for a session whose issue is not in the open-issue list.</summary>
     public async Task<bool> IssueIsOpenAsync(string folder, int issue, CancellationToken ct)
     {

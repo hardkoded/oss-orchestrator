@@ -24,9 +24,9 @@ public static class Planner
     /// <summary>Hard limit on all sessions, freed ones included, so freed slots cannot grow the total without bound.</summary>
     public const int GlobalCap = 20;
 
-    /// <summary>A session waits on a human or on CI, so it does not hold a slot, when it asked a question (blocked) or when its open PR is ready or still building (not a draft, no failed check, and GitHub says it can merge).</summary>
+    /// <summary>A session waits on a human, on another issue or on CI, so it does not hold a slot, when it asked a question (blocked), when it waits on a blocker (waiting) or when its open PR is ready or still building (not a draft, no failed check, and GitHub says it can merge).</summary>
     public static bool FreesSlot(string sessionStatus, PrInfo? pr) =>
-        sessionStatus == "blocked" || pr is { Status: "ready" or "building", IsDraft: false, Mergeable: "MERGEABLE" };
+        sessionStatus is "blocked" or "waiting" || pr is { Status: "ready" or "building", IsDraft: false, Mergeable: "MERGEABLE" };
 
     /// <summary>
     /// Picks which free issues to launch now. Global limit only (no per-repo limit).
