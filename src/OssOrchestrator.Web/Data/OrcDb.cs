@@ -128,11 +128,18 @@ public sealed class OrcDb(Container config, Container commands, Container state,
 
     public async Task<ConfigDoc?> ReadConfigAsync() => await ReadOrNull<ConfigDoc>(config, "config");
 
-    public async Task<List<CommandDoc>> RecentCommandsAsync(int take = 10)
+    public Task<List<CommandDoc>> RecentCommandsAsync(int take = 10) =>
+        QueryCommandsAsync(new QueryDefinition($"SELECT TOP {take} * FROM c ORDER BY c.createdAt DESC"));
+
+    /// <summary>Commands whose effect the state cannot show yet: not processed, or newer than the agent's last pass.</summary>
+    public Task<List<CommandDoc>> PendingCommandsAsync(DateTimeOffset lastPass) =>
+        QueryCommandsAsync(new QueryDefinition("SELECT * FROM c WHERE c.processed = false OR c.createdAt > @lastPass")
+            .WithParameter("@lastPass", lastPass));
+
+    private async Task<List<CommandDoc>> QueryCommandsAsync(QueryDefinition definition)
     {
         var result = new List<CommandDoc>();
-        var query = commands.GetItemQueryIterator<CommandDoc>(
-            new QueryDefinition($"SELECT TOP {take} * FROM c ORDER BY c.createdAt DESC"));
+        var query = commands.GetItemQueryIterator<CommandDoc>(definition);
         while (query.HasMoreResults) result.AddRange(await query.ReadNextAsync());
         return result;
     }

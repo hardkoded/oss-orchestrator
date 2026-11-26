@@ -1,254 +1,445 @@
 @page
 @model IndexModel
 @{
-    ViewData["Title"] = "OSS Orchestrator";
     var state = Model.State;
-    var tabIssues = state?.Issues.FirstOrDefault(x => x.Repo == Model.Tab);
+    var config = Model.Config;
+    var board = Model.Board;
+    var now = DateTimeOffset.UtcNow;
+    var paused = config?.Repos.Any(r => r.Paused) ?? false;
+    var running = config?.Repos.Any(r => !r.Paused) ?? false;
+    var pauseWaits = Model.IsPending(null, null, "pause_all", "resume_all");
+    var checkWaits = Model.IsPending(null, null, "refresh");
+    var needsYou = board.Count(SessionGroup.NeedsAnswer) + board.Count(SessionGroup.ReadyToMerge);
+
+    string Short(string repo) => repo[(repo.IndexOf('/') + 1)..];
+    string Key(SessionStatus s) => $"{s.Repo}/{s.Issue}";
+    string IssueUrl(string repo, int number) => $"https://github.com/{repo}/issues/{number}";
     string Elapsed(TimeSpan t) => t.TotalMinutes < 1 ? "<1m"
         : t.TotalHours < 1 ? $"{(int)t.TotalMinutes}m"
         : t.TotalDays < 1 ? $"{(int)t.TotalHours}h {t.Minutes}m"
         : $"{(int)t.TotalDays}d {t.Hours}h";
-    string StatusText(string s) => s switch
+    string Name(SessionGroup g) => g switch
     {
-        "working" => "working",
-        "blocked" => "needs your answer",
-        "waiting" => "waiting on a blocker",
-        "done" => "finished",
-        "idle" => "idle",
-        "cloud" => "cloud session",
-        _ => "no status",
+        SessionGroup.NeedsAnswer => "Needs answer",
+        SessionGroup.ReadyToMerge => "Ready to merge",
+        SessionGroup.Fixing => "Fixing",
+        SessionGroup.Working => "Writing code",
+        SessionGroup.Checks => "Checks running",
+        _ => "Waiting",
     };
-    string PrStatusClass(string s) => s switch
+    string Color(SessionGroup g) => g switch
     {
-        "ready" or "merged" => "ok",
-        "building" => "info",
-        "failed" or "conflicted" => "bad",
-        _ => "",
+        SessionGroup.NeedsAnswer => "ask",
+        SessionGroup.ReadyToMerge => "ready",
+        SessionGroup.Fixing or SessionGroup.Working => "work",
+        SessionGroup.Checks => "checks",
+        _ => "wait",
     };
-    string SessionClass(string s) => s switch
+    (string? Url, string Text) Primary(SessionNode n) => n.Group switch
     {
-        "working" or "cloud" => "info",
-        "blocked" or "waiting" => "warn",
-        "done" => "ok",
-        _ => "",
+        SessionGroup.ReadyToMerge when n.Session.PrUrl is not null => (n.Session.PrUrl, "Review PR"),
+        SessionGroup.NeedsAnswer => (n.Session.CloudSessionUrl, "Answer"),
+        _ => (n.Session.CloudSessionUrl, "Open session"),
     };
+    (string Text, bool Nobody) BlockerText(IssueStatus? i) => i switch
+    {
+        null => ("not an open issue", false),
+        { Blocked: true } => ("parked", true),
+        { Ignored: true } => ("ignored", true),
+        { Assigned: true } => ("assigned to a person", false),
+        { InProgress: true } => ("in progress, no session", false),
+        _ => ("free in the backlog", true),
+    };
+    string? WaitsOn(SessionNode n) => n.Group != SessionGroup.Waiting ? null
+        : n.Session.BlockedBy is int b ? $"waits on #{b}"
+        : "waiting, blocker unknown";
+
+    async Task Row(SessionNode n)
+    {
+        var s = n.Session;
+        var (url, text) = Primary(n);
+        <li>
+            <div class="row" data-key="@Key(s)">
+                <a class="pick" href="#sessions/@Key(s)">
+                    <span class="meta">
+                        @($"{Short(s.Repo)} #{s.Issue}{(s.PrNumber is int pr ? $" · PR #{pr}" : "")}{(s.StartedAt is null ? "" : " ·")}")
+                        @if (s.StartedAt is { } started) { <time data-age datetime="@started.ToString("O")">@Elapsed(now - started)</time> }
+                    </span>
+                    <span class="title">@s.Title</span>
+                    <span class="chips">
+                        @if (WaitsOn(n) is { } waits) { <span class="chip">⏸ @waits</span> }
+                        @if (n.Blocks > 0) { <span class="chip warn">blocks @n.Blocks</span> }
+                        @if (n.InCycle) { <span class="chip bad">⚠ these wait on each other</span> }
+                        @if (SessionGroups.MayBeStuck(s, now)) { <span class="chip warn">⚠ may be stuck</span> }
+                        @if (s.PrDraft) { <span class="chip">draft PR</span> }
+                    </span>
+                </a>
+                @if (url is not null)
+                {
+                    <a class="go" href="@url" target="_blank" rel="noopener" aria-label="@text @Short(s.Repo) #@s.Issue">↗</a>
+                }
+            </div>
+            @if (n.Waiting.Count > 0)
+            {
+                <ul class="tree">
+                    @foreach (var child in n.Waiting)
+                    {
+                        await Row(child);
+                    }
+                </ul>
+            }
+        </li>
+    }
+
+    async Task Group(SessionGroup g)
+    {
+        var rows = board.In(g);
+        if (rows.Count > 0)
+        {
+            <section class="group">
+                <h2><i class="sw @Color(g)"></i>@Name(g) · @(g == SessionGroup.Waiting ? rows.Sum(n => 1 + n.Blocks) : rows.Count)</h2>
+                <ul class="rows">
+                    @foreach (var n in rows)
+                    {
+                        await Row(n);
+                    }
+                </ul>
+            </section>
+        }
+    }
 }
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="15" />
-    <title>@ViewData["Title"]</title>
-    <link rel="stylesheet" href="/site.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>OSS Orchestrator</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
 </head>
-<body>
-<main>
-    <header>
-        <h1>OSS Orchestrator</h1>
-        <nav><a asp-page="/Settings">Settings &rarr;</a></nav>
-    </header>
-
-    @if (!string.IsNullOrEmpty(Model.Error))
-    {
-        <div class="banner bad">@Model.Error</div>
-    }
-    @if (state is null && string.IsNullOrEmpty(Model.Error))
-    {
-        <div class="banner">No status yet. The agent has not written its first pass.</div>
-    }
-    else if (Model.StateIsStale && state is not null)
-    {
-        <div class="banner">The agent has not reported for more than 10 minutes (last: @state.At.ToLocalTime().ToString("HH:mm:ss")). It may be stopped.</div>
-    }
-    @if (!string.IsNullOrEmpty(Model.Message))
-    {
-        <div class="banner">@Model.Message</div>
-    }
-
-    <div class="card">
-        <div class="kpis">
-            <div class="kpi"><b>@(state?.Running ?? 0)</b><span>sessions running</span></div>
-            <div class="kpi"><b>@(state?.Ready ?? 0)</b><span>sessions waiting</span></div>
-            <div class="kpi"><b>@(state?.MaxTotal ?? 0)</b><span>global limit</span></div>
-            <div class="kpi"><b>@(state?.Planned.Count ?? 0)</b><span>planned to launch</span></div>
-            <div class="kpi"><b>@(state?.ClosedLast24h ?? 0)</b><span>issues closed in 24h</span></div>
-            <div class="kpi"><b>@(state?.DryRun == true ? "dry-run" : "live")</b><span>agent mode</span></div>
-        </div>
+<body data-view="sessions">
+<div id="app">
+    <header class="top">
+        <h1>Orchestrator</h1>
         @if (state is not null)
         {
-            <p class="muted">Last pass: @state.At.ToLocalTime().ToString("HH:mm:ss")</p>
+            <span class="health @(Model.StateIsStale ? "stale" : "")"><i class="dot"></i>
+                <span><span class="long">@(Model.StateIsStale ? "Agent silent" : "Agent live") · </span><time data-since datetime="@state.At.ToString("O")">@Elapsed(now - state.At)</time> ago</span></span>
+            @if (state.DryRun) { <span class="chip warn">dry run</span> }
         }
-        <div class="toolbar">
-            <form method="post" asp-page-handler="Command" class="inline">
-                <input type="hidden" name="type" value="pause_all" /><button type="submit">Pause all</button>
-            </form>
-            <form method="post" asp-page-handler="Command" class="inline">
-                <input type="hidden" name="type" value="resume_all" /><button type="submit">Resume all</button>
-            </form>
-            <form method="post" asp-page-handler="Command" class="inline">
-                <input type="hidden" name="type" value="refresh" /><button type="submit">Refresh now</button>
-            </form>
-        </div>
-    </div>
-
-    <div class="card">
-        <h2>Working on</h2>
-        @if (state is null || state.Sessions.Count == 0)
+        <span class="grow"></span>
+        <button class="quiet" form="act" name="cmd" value="refresh" disabled="@checkWaits" aria-label="Check now">
+            ↻ <span class="long">@(checkWaits ? "Waiting for the agent" : "Check now")</span>
+        </button>
+        @if (pauseWaits)
         {
-            <p class="muted">No open sessions.</p>
+            <button disabled>Waiting…</button>
         }
         else
         {
-            <table>
-                <thead><tr><th>Repo</th><th>Issue</th><th>Title</th><th>Started</th><th>Elapsed</th><th>Session</th><th>Blocked by</th><th>Cloud</th><th>PR</th><th>PR status</th><th></th></tr></thead>
-                <tbody>
-                @foreach (var s in state.Sessions)
-                {
-                    <tr>
-                        <td>@s.Repo</td>
-                        <td class="num"><a href="https://github.com/@s.Repo/issues/@s.Issue" target="_blank" rel="noopener">#@s.Issue</a></td>
-                        <td class="title">@s.Title</td>
-                        <td class="muted">@(s.StartedAt is { } st ? st.ToLocalTime().ToString("MM-dd HH:mm") : "-")</td>
-                        <td class="muted">@(s.StartedAt is { } st2 ? Elapsed(DateTimeOffset.UtcNow - st2) : "-")</td>
-                        <td><span class="pill @SessionClass(s.Status)">@StatusText(s.Status)</span></td>
-                        <td>
-                            @if (s.BlockedBy is int blocker) { <a href="https://github.com/@s.Repo/issues/@blocker" target="_blank" rel="noopener">#@blocker</a> }
-                            else { <span class="muted">-</span> }
-                        </td>
-                        <td>
-                            @if (s.CloudSessionUrl is not null) { <a href="@s.CloudSessionUrl" target="_blank" rel="noopener">View session</a> }
-                            else { <span class="muted">local</span> }
-                        </td>
-                        <td>
-                            @if (s.PrUrl is not null)
-                            {
-                                <a href="@s.PrUrl" target="_blank" rel="noopener">#@s.PrNumber</a>
-                                @if (s.PrDraft) { <span class="pill">draft</span> }
-                            }
-                            else
-                            {
-                                <span class="muted">no PR yet</span>
-                            }
-                        </td>
-                        <td><span class="pill @PrStatusClass(s.PrStatus)">@s.PrStatus</span></td>
-                        <td>
-                            @if (s.PrConflict && s.CloudSessionUrl is null)
-                            {
-                                <form method="post" asp-page-handler="Command" class="inline">
-                                    <input type="hidden" name="type" value="restore" />
-                                    <input type="hidden" name="repo" value="@s.Repo" />
-                                    <input type="hidden" name="issue" value="@s.Issue" />
-                                    <input type="hidden" name="tab" value="@Model.Tab" />
-                                    <button type="submit">Restore</button>
-                                </form>
-                            }
-                            <form method="post" asp-page-handler="Command" class="inline"
-                                  onsubmit="return confirm('Block #@s.Issue and end its session? The issue gets the blocked label.');">
-                                <input type="hidden" name="type" value="block_session" />
-                                <input type="hidden" name="repo" value="@s.Repo" />
-                                <input type="hidden" name="issue" value="@s.Issue" />
-                                <input type="hidden" name="tab" value="@Model.Tab" />
-                                <button type="submit">Block</button>
-                            </form>
-                        </td>
-                    </tr>
-                }
-                </tbody>
-            </table>
+            if (paused) { <button form="act" name="cmd" value="resume_all">▶ Resume</button> }
+            if (running) { <button form="act" name="cmd" value="pause_all"><span>❚❚ Pause<span class="long"> new work</span></span></button> }
         }
-    </div>
+    </header>
 
-    <div class="card">
-        <h2>Open issues</h2>
-        @if (state is null || state.Issues.Count == 0)
-        {
-            <p class="muted">No repos yet.</p>
-        }
-        else
-        {
-            <nav class="tabs">
-                @foreach (var r in state.Issues)
-                {
-                    <a asp-page="/Index" asp-route-tab="@r.Repo" class="@(r.Repo == Model.Tab ? "tab active" : "tab")">@r.Repo (@r.Items.Count)</a>
-                }
-            </nav>
-            @if (tabIssues is null || tabIssues.Items.Count == 0)
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <p class="flash banner">@Model.Message</p>
+    }
+    @if (!string.IsNullOrEmpty(Model.Error))
+    {
+        <p class="banner bad">@Model.Error</p>
+    }
+    else if (state is null)
+    {
+        <p class="banner">No status yet. The agent has not written its first pass.</p>
+    }
+    else if (Model.StateIsStale)
+    {
+        <p class="banner">The agent has not reported for more than 10 minutes (last: <time data-local datetime="@state.At.ToString("O")">@state.At.UtcDateTime.ToString("HH:mm") UTC</time>). It may be stopped.</p>
+    }
+    @if (paused)
+    {
+        <p class="banner"><b>Paused.</b> Paused repos start no new sessions. Open sessions continue.</p>
+    }
+
+    <nav class="nav" aria-label="Views">
+        <a href="#sessions" data-tab="sessions">Sessions @if (needsYou > 0) { <b class="badge" title="Sessions that need you">@needsYou</b> }</a>
+        <a href="#backlog" data-tab="backlog">Backlog</a>
+        <a href="#activity" data-tab="activity">Activity</a>
+        <a href="#repos" data-tab="repos">Repos</a>
+    </nav>
+
+    <div class="layout">
+        <aside class="repos" aria-label="Repos">
+            @foreach (var r in config?.Repos ?? [])
             {
-                <p class="muted">No open issues in this repo.</p>
+                var status = state?.Repos.FirstOrDefault(x => x.Repo == r.Repo);
+                var takes = r.Auto && !r.Paused;
+                var waits = pauseWaits || Model.IsPending(r.Repo, null, "pause", "resume", "auto");
+                <div class="repo">
+                    <b>@Short(r.Repo)</b>
+                    <span class="sub">@(status?.OpenIssues ?? 0) open · @board.All.Count(n => n.Session.Repo == r.Repo) sessions</span>
+                    @if (r.Paused) { <span class="chip warn">paused</span> }
+                    @if (!string.IsNullOrEmpty(status?.Error)) { <span class="error">@status.Error</span> }
+                    <button class="switch" role="switch" aria-checked="@(takes ? "true" : "false")" aria-label="Take new issues from @r.Repo"
+                            form="act" name="cmd" value="take|@r.Repo||@(takes ? "false" : "true")" disabled="@waits">
+                        <span>@(waits ? "Waiting for the agent" : "Take new issues")</span><i></i>
+                    </button>
+                </div>
             }
-            else
+            @if (config is not null)
             {
-                <table>
-                    <thead><tr><th>Issue</th><th>Title</th><th>State</th><th></th></tr></thead>
-                    <tbody>
-                    @foreach (var i in tabIssues.Items)
+                var limitWaits = Model.IsPending(null, null, "limit");
+                <div class="repo stepper">
+                    <span>@(limitWaits ? "Waiting for the agent" : "Work slots")</span>
+                    <button form="act" name="cmd" value="limit|||@(config.MaxTotal - 1)" aria-label="Fewer work slots" disabled="@(limitWaits || config.MaxTotal <= 1)">−</button>
+                    <b>@config.MaxTotal</b>
+                    <button form="act" name="cmd" value="limit|||@(config.MaxTotal + 1)" aria-label="More work slots" disabled="@(limitWaits || config.MaxTotal >= 20)">+</button>
+                </div>
+            }
+        </aside>
+
+        <main>
+            <div class="pane" data-pane="sessions">
+                @{
+                    var segments = new[]
                     {
-                        <tr>
-                            <td class="num"><a href="https://github.com/@tabIssues.Repo/issues/@i.Number" target="_blank" rel="noopener">#@i.Number</a></td>
-                            <td class="title">@i.Title</td>
-                            <td>
-                                @if (i.InProgress) { <span class="pill on">in-progress</span> }
-                                else if (i.Blocked) { <span class="pill paused">blocked</span> }
-                                else if (i.Assigned) { <span class="pill">assigned</span> }
-                                else if (i.Ignored) { <span class="pill">ignored</span> }
-                                else { <span class="muted">free</span> }
-                            </td>
-                            <td>
-                                @if (i.Blocked)
-                                {
-                                    <form method="post" asp-page-handler="Command" class="inline">
-                                        <input type="hidden" name="type" value="unblock" />
-                                        <input type="hidden" name="repo" value="@tabIssues.Repo" />
-                                        <input type="hidden" name="issue" value="@i.Number" />
-                                        <input type="hidden" name="tab" value="@Model.Tab" />
-                                        <button type="submit">Unblock</button>
-                                    </form>
-                                }
-                                else if (!i.Ignored && !i.Assigned && !i.InProgress)
-                                {
-                                    <form method="post" asp-page-handler="Command" class="inline">
-                                        <input type="hidden" name="type" value="ignore" />
-                                        <input type="hidden" name="repo" value="@tabIssues.Repo" />
-                                        <input type="hidden" name="issue" value="@i.Number" />
-                                        <input type="hidden" name="tab" value="@Model.Tab" />
-                                        <button type="submit">Ignore</button>
-                                    </form>
-                                }
-                            </td>
-                        </tr>
+                        (Color: "ask", Label: "need answer", Count: board.Count(SessionGroup.NeedsAnswer)),
+                        (Color: "work", Label: "working", Count: board.Count(SessionGroup.Working) + board.Count(SessionGroup.Fixing)),
+                        (Color: "ready", Label: "ready", Count: board.Count(SessionGroup.ReadyToMerge)),
+                        (Color: "checks", Label: "in checks", Count: board.Count(SessionGroup.Checks)),
+                        (Color: "wait", Label: "waiting", Count: board.Count(SessionGroup.Waiting)),
+                    }.Where(x => x.Count > 0 || x.Color != "wait").ToList();
+                    var cap = Math.Max(20, board.All.Count);
+                }
+                <div class="capacity">
+                    <div class="bar" role="img" aria-label="@board.All.Count of 20 sessions open">
+                        @foreach (var x in segments)
+                        {
+                            <i class="@x.Color" style="width:@((x.Count * 100.0 / cap).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></i>
+                        }
+                    </div>
+                    <p class="legend">
+                        @foreach (var x in segments)
+                        {
+                            <span><i class="sw @x.Color"></i><b>@x.Count</b> @x.Label</span>
+                        }
+                    </p>
+                    <p class="legend">
+                        <span><b>@(state?.Running ?? 0) of @(state?.MaxTotal ?? 0)</b> work slots</span>
+                        <span><b>@board.All.Count of 20</b> sessions</span>
+                        <span><b>@(state?.ClosedLast24h ?? 0)</b> closed in 24h</span>
+                    </p>
+                </div>
+
+                @if (board.All.Count == 0)
+                {
+                    <p class="empty">No open sessions.</p>
+                }
+                @{ await Group(SessionGroup.NeedsAnswer); }
+                @{ await Group(SessionGroup.ReadyToMerge); }
+                @{
+                    var busy = new[] { SessionGroup.Fixing, SessionGroup.Working, SessionGroup.Checks }.SelectMany(board.In).ToList();
+                    var stuck = busy.SelectMany(n => n.Tree).Count(n => SessionGroups.MayBeStuck(n.Session, now));
+                    var held = busy.Sum(n => n.Blocks);
+                }
+                @if (busy.Count > 0)
+                {
+                    <details id="busy" open>
+                        <summary>Agent busy · @busy.Count
+                            @if (stuck > 0) { <span class="chip warn">⚠ @stuck may be stuck</span> }
+                            @if (held > 0) { <span class="chip warn">blocks @held</span> }
+                        </summary>
+                        @{ await Group(SessionGroup.Fixing); }
+                        @{ await Group(SessionGroup.Working); }
+                        @{ await Group(SessionGroup.Checks); }
+                    </details>
+                }
+                @{ await Group(SessionGroup.Waiting); }
+                @if (board.Outside.Count > 0)
+                {
+                    <section class="group">
+                        <h2><i class="sw wait"></i>Waiting on others · @board.Outside.Sum(o => o.Waiting.Count)</h2>
+                        <ul class="rows">
+                            @foreach (var o in board.Outside)
+                            {
+                                var (text, nobody) = BlockerText(o.Issue);
+                                <li>
+                                    @if (o.Number is int number)
+                                    {
+                                        <a class="outside" href="@IssueUrl(o.Repo, number)" target="_blank" rel="noopener">
+                                            <span class="meta">@Short(o.Repo) #@number · @text</span>
+                                            @if (o.Issue is not null) { <span class="title">@o.Issue.Title</span> }
+                                            @if (nobody) { <span class="chips"><span class="chip warn">⚠ nobody works on it</span></span> }
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <span class="outside"><span class="meta">@Short(o.Repo) · blocker unknown</span></span>
+                                    }
+                                    <ul class="tree">
+                                        @foreach (var n in o.Waiting)
+                                        {
+                                            await Row(n);
+                                        }
+                                    </ul>
+                                </li>
+                            }
+                        </ul>
+                    </section>
+                }
+            </div>
+
+            <div class="pane" data-pane="backlog">
+                <div class="filters">
+                    <input id="q" type="search" placeholder="Search title or number" aria-label="Search issues" />
+                    <select id="repo" aria-label="Repo">
+                        <option value="all">All repos (@(state?.Issues.Sum(r => r.Items.Count) ?? 0) open)</option>
+                        @foreach (var r in state?.Issues ?? [])
+                        {
+                            <option value="@r.Repo">@Short(r.Repo) (@r.Items.Count)</option>
+                        }
+                    </select>
+                    <select id="state" aria-label="State">
+                        <option value="free">Free</option>
+                        <option value="parked">Parked</option>
+                        <option value="ignored">Ignored</option>
+                        <option value="session">In a session</option>
+                        <option value="assigned">Assigned</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+                <ul class="rows">
+                    @foreach (var r in state?.Issues ?? [])
+                    {
+                        // The config is newer than the state, so an Ignore or Restore shows as soon as the agent saved it.
+                        var ignoredNumbers = config?.Repos.FirstOrDefault(x => x.Repo == r.Repo)?.Ignored;
+                        foreach (var i in r.Items)
+                        {
+                            var ignored = ignoredNumbers?.Contains(i.Number) ?? i.Ignored;
+                            var tags = new List<(string Key, string Text)>();
+                            if (i.InProgress) { tags.Add(("session", "In a session")); }
+                            if (i.Blocked) { tags.Add(("parked", "Parked")); }
+                            if (i.Assigned) { tags.Add(("assigned", "Assigned")); }
+                            if (ignored) { tags.Add(("ignored", "Ignored")); }
+                            var free = tags.Count == 0;
+                            var waits = Model.IsPending(r.Repo, i.Number, "ignore", "restore", "unblock", "block_session");
+                            <li class="row issue" data-repo="@r.Repo" data-state="@(free ? "free" : string.Join(' ', tags.Select(t => t.Key)))">
+                                <a class="pick" href="@IssueUrl(r.Repo, i.Number)" target="_blank" rel="noopener">
+                                    <span class="meta">@Short(r.Repo) #@i.Number</span>
+                                    <span class="title">@i.Title</span>
+                                    <span class="chips">@foreach (var t in tags) { <span class="chip">@t.Text</span> }</span>
+                                </a>
+                                <span class="actions">
+                                    @if (waits) { <span class="sub">Waiting for the agent</span> }
+                                    else
+                                    {
+                                        if (i.Blocked) { <button form="act" name="cmd" value="unblock|@r.Repo|@i.Number" aria-label="Return @Short(r.Repo) #@i.Number to the queue">Return to queue</button> }
+                                        if (ignored) { <button form="act" name="cmd" value="restore|@r.Repo|@i.Number" aria-label="Restore @Short(r.Repo) #@i.Number">Restore</button> }
+                                        if (free) { <button form="act" name="cmd" value="ignore|@r.Repo|@i.Number" aria-label="Ignore @Short(r.Repo) #@i.Number">Ignore</button> }
+                                    }
+                                </span>
+                            </li>
+                        }
                     }
-                    </tbody>
-                </table>
+                </ul>
+                <p class="empty" id="none" hidden>No issues match. Change the filters.</p>
+            </div>
+
+            <div class="pane" data-pane="activity">
+                @if (Model.Recent.Count == 0)
+                {
+                    <p class="empty">No commands yet.</p>
+                }
+                <ul class="rows">
+                    @foreach (var c in Model.Recent)
+                    {
+                        var problem = Activity.Problem(c);
+                        <li class="row event">
+                            <span class="pick">
+                                <span class="title">@Activity.Describe(c)</span>
+                                <span class="meta"><time data-local datetime="@c.CreatedAt.ToString("O")">@c.CreatedAt.UtcDateTime.ToString("MM-dd HH:mm") UTC</time></span>
+                                @if (problem is not null) { <span class="error">@problem</span> }
+                            </span>
+                            <span class="chip @(!c.Processed || problem is not null ? "warn" : "")">@(!c.Processed ? "Waiting for the agent" : problem is null ? "✓ Done" : "Not done")</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </main>
+
+        <aside class="detail" aria-label="Session details">
+            @foreach (var n in board.All)
+            {
+                var s = n.Session;
+                var (url, text) = Primary(n);
+                var parkWaits = Model.IsPending(s.Repo, s.Issue, "block_session");
+                <article class="card" data-key="@Key(s)" hidden>
+                    <span class="chip"><i class="sw @Color(n.Group)"></i>@Name(n.Group)</span>
+                    <h2>@s.Title</h2>
+                    <p class="sub">@Short(s.Repo) #@s.Issue
+                        @if (s.PrNumber is int pr) { <text>· PR @pr (@s.PrStatus)</text> }
+                        @if (s.StartedAt is { } started) { <text>· started </text><time data-local datetime="@started.ToString("O")">@started.UtcDateTime.ToString("MM-dd HH:mm") UTC</time> }
+                    </p>
+                    @if (SessionGroups.MayBeStuck(s, now)) { <p class="chip warn">⚠ No PR yet. It may be stuck.</p> }
+                    @if (n.InCycle) { <p class="chip bad">⚠ These sessions wait on each other.</p> }
+                    @if (n.Group == SessionGroup.Waiting)
+                    {
+                        <h3>Waits on</h3>
+                        <ol class="chain">
+                            @{ var step = n; }
+                            @while (step.Blocker is { } up)
+                            {
+                                <li><a href="#sessions/@Key(up.Session)">#@up.Session.Issue @up.Session.Title <span class="chip">@Name(up.Group)</span></a></li>
+                                step = up;
+                            }
+                            @if (step.InCycle)
+                            {
+                                <li><span>#@step.Session.BlockedBy, so these wait on each other</span></li>
+                            }
+                            else if (step.Group == SessionGroup.Waiting)
+                            {
+                                if (step.Session.BlockedBy is int outside)
+                                {
+                                    <li><a href="@IssueUrl(step.Session.Repo, outside)" target="_blank" rel="noopener">#@outside, no session ↗</a></li>
+                                }
+                                else
+                                {
+                                    <li><span>Blocker unknown</span></li>
+                                }
+                            }
+                        </ol>
+                    }
+                    @if (n.Waiting.Count > 0)
+                    {
+                        <h3>Blocks @n.Blocks</h3>
+                        <ul class="chain">
+                            @foreach (var w in n.Tree.Skip(1))
+                            {
+                                <li><a href="#sessions/@Key(w.Session)">#@w.Session.Issue @w.Session.Title</a></li>
+                            }
+                        </ul>
+                    }
+                    <div class="actions">
+                        @if (url is not null) { <a class="button primary" href="@url" target="_blank" rel="noopener">@text ↗</a> }
+                        @if (s.CloudSessionUrl is not null && url != s.CloudSessionUrl) { <a class="button" href="@s.CloudSessionUrl" target="_blank" rel="noopener">Open session ↗</a> }
+                        <a class="button" href="@IssueUrl(s.Repo, s.Issue)" target="_blank" rel="noopener">Open issue ↗</a>
+                        @if (s.PrUrl is not null && url != s.PrUrl) { <a class="button" href="@s.PrUrl" target="_blank" rel="noopener">Open PR ↗</a> }
+                        <button class="quiet park" form="act" name="cmd" value="block_session|@s.Repo|@s.Issue" disabled="@parkWaits"
+                                data-confirm="Park #@s.Issue? The orchestrator stops tracking it and adds the blocked label. The cloud session keeps running.">
+                            @(parkWaits ? "Waiting for the agent" : "Park issue")
+                        </button>
+                    </div>
+                </article>
             }
-        }
+        </aside>
     </div>
 
-    <div class="card">
-        <h2>Recent commands</h2>
-        @if (Model.Recent.Count == 0)
-        {
-            <p class="muted">None yet.</p>
-        }
-        else
-        {
-            <table>
-                <thead><tr><th>When</th><th>Command</th><th>By</th><th>Result</th></tr></thead>
-                <tbody>
-                @foreach (var c in Model.Recent)
-                {
-                    <tr>
-                        <td class="muted">@c.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm")</td>
-                        <td>@c.Type @c.Repo @(c.Issue is null ? "" : "#" + c.Issue)</td>
-                        <td class="muted">@c.By</td>
-                        <td class="muted">@(c.Processed ? c.Result : "waiting for the agent")</td>
-                    </tr>
-                }
-                </tbody>
-            </table>
-        }
-    </div>
-</main>
-    <script src="/site.js"></script>
+    <form id="act" method="post" asp-page-handler="Command"></form>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="sheet" aria-label="Session details"></dialog>
+<script src="~/site.js" asp-append-version="true"></script>
 </body>
 </html>

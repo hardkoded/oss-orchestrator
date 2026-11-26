@@ -31,7 +31,41 @@ public static class CommandFactory
         return (cmd, null);
     }
 
-    /// <summary>Only local page paths are accepted as a redirect target.</summary>
-    public static string SafeReturn(string? returnTo) =>
-        returnTo is "/Settings" ? "/Settings" : "/";
+    /// <summary>
+    /// The commands behind one dashboard button, written as "type|repo|issue|value". The type "take" is the repo's
+    /// "Take new issues" switch: turning it on also resumes a paused repo, because the agent needs both.
+    /// </summary>
+    public static (IReadOnlyList<CommandDoc> Commands, string? Error) FromButton(string? button, ConfigDoc? config, string? by)
+    {
+        var parts = (button ?? "").Split('|');
+        var type = parts[0];
+        var repo = Part(1);
+        var issue = int.TryParse(Part(2), out var n) ? n : (int?)null;
+        var value = Part(3);
+
+        var steps = new List<(string Type, string? Value)> { (type, value) };
+        if (type == "take")
+        {
+            var current = config?.Repos.FirstOrDefault(r => r.Repo == repo);
+            if (current is null) return ([], "Unknown repo.");
+            steps = [];
+            if (value != "true") steps.Add(("auto", "false"));
+            else
+            {
+                if (current.Paused) steps.Add(("resume", null));
+                if (!current.Auto) steps.Add(("auto", "true"));
+            }
+        }
+
+        var commands = new List<CommandDoc>();
+        foreach (var step in steps)
+        {
+            var (cmd, error) = Build(step.Type, repo, issue, step.Value, by);
+            if (cmd is null) return ([], error);
+            commands.Add(cmd);
+        }
+        return (commands, null);
+
+        string? Part(int i) => parts.Length > i && parts[i].Length > 0 ? parts[i] : null;
+    }
 }

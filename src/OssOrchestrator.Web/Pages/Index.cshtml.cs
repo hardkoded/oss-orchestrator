@@ -7,42 +7,51 @@ namespace OssOrchestrator.Web.Pages;
 public sealed class IndexModel(OrcDb db) : PageModel
 {
     public StateDoc? State { get; private set; }
+    public ConfigDoc? Config { get; private set; }
     public List<CommandDoc> Recent { get; private set; } = [];
+    public List<CommandDoc> Pending { get; private set; } = [];
+    public SessionBoard Board { get; private set; } = SessionGroups.Build([], []);
     public string? Error { get; private set; }
     public string? Message { get; private set; }
 
-    /// <summary>The repo tab in the issues list (the repo name), or the first repo when none is chosen.</summary>
-    public string? Tab { get; private set; }
-
     public bool StateIsStale => State is null || DateTimeOffset.UtcNow - State.At > TimeSpan.FromMinutes(10);
 
-    public async Task OnGetAsync(string? tab)
+    /// <summary>True while one of these commands waits for the agent. A null repo or issue matches any.</summary>
+    public bool IsPending(string? repo, int? issue, params string[] types) =>
+        Pending.Any(c => types.Contains(c.Type) && (repo is null || c.Repo == repo) && (issue is null || c.Issue == issue));
+
+    public async Task OnGetAsync()
     {
         Message = TempData["Message"] as string;
         try
         {
             State = await db.ReadStateAsync();
+            Config = await db.ReadConfigAsync();
             Recent = await db.RecentCommandsAsync();
-            Tab = tab ?? State?.Issues.FirstOrDefault()?.Repo;
+            Pending = await db.PendingCommandsAsync(State?.At ?? DateTimeOffset.MinValue);
+            Board = SessionGroups.Build(State?.Sessions ?? [], State?.Issues ?? []);
         }
         catch (Exception e)
         {
             Error = $"Could not read the database: {e.Message}";
+            // The script keeps what is on screen when a refresh does not succeed.
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
         }
     }
 
-    public async Task<IActionResult> OnPostCommandAsync(string type, string? repo, int? issue, string? value, string? tab)
+    public async Task<IActionResult> OnPostCommandAsync(string? cmd)
     {
-        var (cmd, error) = CommandFactory.Build(type, repo, issue, value, User.Identity?.Name);
-        if (cmd is null)
+        try
         {
-            TempData["Message"] = error;
+            var (commands, error) = CommandFactory.FromButton(cmd, await db.ReadConfigAsync(), User.Identity?.Name);
+            foreach (var command in commands) await db.QueueAsync(command);
+            TempData["Message"] = error
+                ?? (commands.Count == 0 ? "Nothing to change." : $"Sent: {string.Join(", ", commands.Select(Activity.Describe))}.");
         }
-        else
+        catch (Exception e)
         {
-            await db.QueueAsync(cmd);
-            TempData["Message"] = $"Queued: {type}" + (repo is null ? "" : $" {repo}") + (issue is null ? "" : $" #{issue}");
+            TempData["Message"] = $"Could not send the command: {e.Message}";
         }
-        return Redirect(string.IsNullOrEmpty(tab) ? "/" : $"/?tab={Uri.EscapeDataString(tab)}");
+        return RedirectToPage();
     }
 }
