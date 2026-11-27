@@ -68,11 +68,18 @@ while (true)
         var waitingOn = new Dictionary<string, IReadOnlySet<int>>();
         var errors = new Dictionary<string, string>();
         var closedLast24h = 0;
+        var mergedLast24h = 0;
         foreach (var repo in config.Repos)
         {
             // Not critical: a failed lookup only leaves this repo out of the closed-in-24h count.
             try { closedLast24h += await github.ClosedSinceAsync(repo.Folder, DateTimeOffset.UtcNow.AddHours(-24), CancellationToken.None); }
             catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not read closed issues of {repo.Repo}: {e.Message}"); }
+            try
+            {
+                var since = DateTimeOffset.UtcNow.AddHours(-24);
+                mergedLast24h += (await github.MergedPrTimesAsync(repo.Folder, since, CancellationToken.None)).Count(at => at > since);
+            }
+            catch (Exception e) { errors[repo.Repo] = e.Message; }
             var settings = new RepoSettings(repo.Repo, repo.Folder, repo.Paused, repo.Auto);
             try { issues[repo.Repo] = await github.OpenIssuesAsync(settings, CancellationToken.None); }
             catch (Exception e) { errors[repo.Repo] = e.Message; }
@@ -493,6 +500,24 @@ while (true)
             }).ToList(),
         });
         await log.WriteLineAsync($"{DateTime.Now:T} pass done: running={running} ready={ready} planned={plan.Count} errors={errors.Count}");
+
+        // History comes after the state, so a failure here never delays or loses a pass.
+        await BackfillHistoryAsync(db, github, config, log);
+        // A failed or cut GitHub list would draw a drop that did not happen, so only a complete pass is recorded.
+        var incomplete = errors.Keys
+            .Concat(issues.Where(x => x.Value.Count >= GitHub.OpenIssueLimit).Select(x => x.Key))
+            .Distinct().ToList();
+        if (incomplete.Count > 0)
+            await log.WriteLineAsync($"{DateTime.Now:T} history skipped: incomplete GitHub data for {string.Join(", ", incomplete)}");
+        else
+            await RecordHistoryAsync(db, new HistoryPoint
+            {
+                At = DateTimeOffset.UtcNow,
+                Open = issues.Values.Sum(x => x.Count),
+                Merged24h = mergedLast24h,
+                Sessions = shown.Count,
+                Running = running,
+            }, log);
     }
     catch (Exception e)
     {
@@ -531,6 +556,44 @@ static async Task<string> BlockSessionAsync(ConfigDoc config, CommandDoc cmd, bo
     try { await IssueLabels.RemoveInProgressAsync(repo.Folder, n, CancellationToken.None); }
     catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not clear in-progress on {repo.Repo}#{n}: {e.Message}"); }
     return $"blocked {repo.Repo} #{n} and stopped tracking its session";
+}
+
+// Adds the point to the document of its day, when it says something new.
+static async Task RecordHistoryAsync(DbStore db, HistoryPoint point, TextWriter log)
+{
+    try
+    {
+        var id = History.DayId(point.At);
+        var day = await db.LoadHistoryAsync(id) ?? new HistoryDoc { Id = id };
+        if (!History.ShouldAdd(day.Points.LastOrDefault(), point)) return;
+        day.Points.Add(point);
+        await db.SaveHistoryAsync(day);
+    }
+    catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not record the history: {e.Message}"); }
+}
+
+// Rebuilds the open and merged counts of the past days from GitHub, once. All repos or nothing: a failure is tried
+// again on the next pass.
+static async Task BackfillHistoryAsync(DbStore db, GitHub github, ConfigDoc config, TextWriter log)
+{
+    try
+    {
+        // With no repos it would save zeros for good.
+        if (config.Repos.Count == 0 || await db.LoadHistoryAsync(History.BackfillId) is not null) return;
+        var now = DateTimeOffset.UtcNow;
+        var first = History.FirstBackfillDay(now);
+        var issues = new List<IssueSpan>();
+        var merged = new List<DateTimeOffset>();
+        foreach (var repo in config.Repos)
+        {
+            issues.AddRange(await github.IssueSpansAsync(repo.Folder, first, CancellationToken.None));
+            // The first day counts the merges of the 24 hours before it.
+            merged.AddRange(await github.MergedPrTimesAsync(repo.Folder, first.AddDays(-1), CancellationToken.None));
+        }
+        await db.SaveHistoryAsync(new HistoryDoc { Id = History.BackfillId, Points = History.Backfill(issues, merged, now) });
+        await log.WriteLineAsync($"{DateTime.Now:T} backfilled {History.BackfillDays} days of history");
+    }
+    catch (Exception e) { await log.WriteLineAsync($"{DateTime.Now:T} could not backfill the history: {e.Message}"); }
 }
 
 // Waits between passes, but wakes early when a dashboard command is queued or GitHub reports a change (through the

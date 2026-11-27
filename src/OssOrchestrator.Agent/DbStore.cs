@@ -77,6 +77,26 @@ public sealed class NudgeEntry
     public DateTimeOffset At { get; set; }
 }
 
+/// <summary>The totals of all repos at one moment, for the History tab (see OrcDb.HistoryDoc in the web project). Keep them in sync.</summary>
+public sealed class HistoryPoint
+{
+    public DateTimeOffset At { get; set; }
+    public int Open { get; set; }
+    /// <summary>PRs merged in the 24 hours before <see cref="At"/>.</summary>
+    public int Merged24h { get; set; }
+    /// <summary>All open sessions. Null for a backfilled point: GitHub does not know it.</summary>
+    public int? Sessions { get; set; }
+    /// <summary>Sessions that use a work slot. Null for a backfilled point.</summary>
+    public int? Running { get; set; }
+}
+
+/// <summary>The points of one UTC day, or the backfilled ones.</summary>
+public sealed class HistoryDoc
+{
+    public string Id { get; set; } = "";
+    public List<HistoryPoint> Points { get; set; } = [];
+}
+
 /// <summary>A GitHub event the web app's webhook recorded (see OrcDb.EventDoc in the web project). Keep them in sync.</summary>
 public sealed class EventDoc
 {
@@ -200,6 +220,21 @@ public sealed class DbStore(Container config, Container commands, Container stat
     }
 
     public Task SaveNudgesAsync(NudgeDoc doc) => state.UpsertItemAsync(doc, new PartitionKey(doc.Id));
+
+    /// <summary>A history document, or null when it does not exist. Any other failure is thrown, so it is never overwritten.</summary>
+    public async Task<HistoryDoc?> LoadHistoryAsync(string id)
+    {
+        try
+        {
+            return (await state.ReadItemAsync<HistoryDoc>(id, new PartitionKey(id))).Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public Task SaveHistoryAsync(HistoryDoc doc) => Retry.WriteAsync(() => state.UpsertItemAsync(doc, new PartitionKey(doc.Id)));
 
     public async Task<string?> LoadFeedTokenAsync()
     {

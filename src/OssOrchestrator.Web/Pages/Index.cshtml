@@ -187,6 +187,7 @@
         <a href="#sessions" data-tab="sessions">Sessions @if (needsYou > 0) { <b class="badge" title="Sessions that need you">@needsYou</b> }</a>
         <a href="#backlog" data-tab="backlog">Backlog</a>
         <a href="#activity" data-tab="activity">Activity</a>
+        <a href="#history" data-tab="history">History</a>
         <a href="#repos" data-tab="repos">Repos</a>
     </nav>
 
@@ -395,6 +396,46 @@
                         </li>
                     }
                 </ul>
+            </div>
+            <div class="pane" data-pane="history">
+                @if (Model.HistoryError is not null)
+                {
+                    <p class="empty">@Model.HistoryError</p>
+                }
+                else if (Model.History.Count == 0)
+                {
+                    <p class="empty">No history yet. The agent records it after each pass.</p>
+                }
+                else
+                {
+                    foreach (var chart in HistoryChart.Build(Model.History, now))
+                    {
+                        <figure class="chart">
+                            <figcaption>
+                                <h2>@chart.Title</h2>
+                                <p class="legend">
+                                    @foreach (var line in chart.Lines)
+                                    {
+                                        <span><i class="sw @line.Color"></i><b>@(line.Latest?.ToString() ?? "–")</b> @line.Label</span>
+                                    }
+                                </p>
+                            </figcaption>
+                            <div class="plot">
+                                <span>@chart.Max</span>
+                                <svg viewBox="0 0 @HistoryChart.Width @HistoryChart.Height" preserveAspectRatio="none" role="img"
+                                     aria-label="@chart.Title over the last @HistoryChart.Days days, from @chart.Min to @chart.Max">
+                                    @foreach (var line in chart.Lines)
+                                    {
+                                        <path class="line @line.Color" d="@line.Path" />
+                                        <path class="dots @line.Color" d="@line.Dots" />
+                                    }
+                                </svg>
+                                <span>@chart.Min</span>
+                            </div>
+                            <p class="axis"><span>@HistoryChart.Days days ago</span><span>now</span></p>
+                        </figure>
+                    }
+                }
             </div>
         </main>
 

@@ -10,6 +10,10 @@ Orchestrates Claude Code sessions, one per GitHub issue, with a dashboard.
 - **Database**: Azure Cosmos DB free tier. Containers: `config`, `commands`, `state`, `events`.
 - **Webhook**: GitHub calls `POST /webhooks/github` on the web app. It checks the signature and records the event in `events`. The agent reads that container through the change feed and runs a pass right away. The pass reads the real state from GitHub, so the event only says "look now".
 
+## History
+
+After each pass the agent records the totals of all repos in `state`: open issues, PRs merged in the last 24 hours, open sessions and sessions that use a work slot. There is one document per UTC day (`history-yyyy-MM-dd`). A point is added when a number changes, or after an hour. A pass that could not read all of GitHub is not recorded. Once, the agent rebuilds the open and merged counts of the past 30 days from GitHub (`history-backfill`). The dashboard's History tab charts the last 30 days.
+
 ## Waiting on another issue or PR
 
 A worker that cannot go on until other issues or PRs of the same repo are done posts one comment with a marker `<!-- orc:blocked-by #123 -->` for each one, then adds the `waiting-on` label. Only the newest such comment counts. Only comments by the worker's own login count. If the worker posts the comment but misses the label, the agent adds `waiting-on` and removes `needs-answer`. This happens only when the comment is newer than the start of the session, the last question and the end of the last wait. While the label is on, the dashboard lists the session under the session of its first open blocker (or under "Waiting on others" when that blocker has no session) and names its other open blockers, and it does not hold a slot. When every blocker is merged, completed or closed, the agent tells the worker to continue and removes the label.

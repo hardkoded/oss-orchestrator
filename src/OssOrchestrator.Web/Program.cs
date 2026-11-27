@@ -22,6 +22,7 @@ builder.Services.AddAuthorizationBuilder()
 
 builder.Services.AddSingleton<IAuthorizationHandler, AllowedUserHandler>();
 builder.Services.AddRazorPages().AddMicrosoftIdentityUI();
+builder.Services.AddMemoryCache();
 
 // The page refreshes itself with fetch, which cannot follow the sign-in redirect. It gets 401 instead and reloads.
 builder.Services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>

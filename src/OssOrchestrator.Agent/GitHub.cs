@@ -54,9 +54,14 @@ public static class PrStatus
 /// <summary>Reads issues and PRs through the gh CLI (the user's own login, nothing stored here).</summary>
 public sealed class GitHub
 {
+    /// <summary>The most open issues read per repo. A repo with this many may have more.</summary>
+    public const int OpenIssueLimit = 500;
+    /// <summary>The most results a GitHub search returns.</summary>
+    private const int SearchLimit = 1000;
+
     public async Task<IReadOnlyList<IssueInfo>> OpenIssuesAsync(RepoSettings repo, CancellationToken ct)
     {
-        var json = await RunAsync(repo.Folder, ct, "issue", "list", "--state", "open", "--limit", "500",
+        var json = await RunAsync(repo.Folder, ct, "issue", "list", "--state", "open", "--limit", $"{OpenIssueLimit}",
             "--json", "number,title,assignees,labels");
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.EnumerateArray()
@@ -157,6 +162,36 @@ public sealed class GitHub
             "--limit", "300", "--json", "closedAt");
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.EnumerateArray().Count(e => e.GetProperty("closedAt").GetDateTimeOffset() > since);
+    }
+
+    /// <summary>When PRs were merged, from the day of <paramref name="since"/> on. The search is by date, so the caller makes the exact cut.</summary>
+    public async Task<IReadOnlyList<DateTimeOffset>> MergedPrTimesAsync(string folder, DateTimeOffset since, CancellationToken ct) =>
+        (await WholeListAsync(folder, ct, "pr", "list", "--state", "merged", "--search", $"merged:>={since.UtcDateTime:yyyy-MM-dd}",
+            "--json", "mergedAt"))
+        .Select(e => e.GetProperty("mergedAt").GetDateTimeOffset())
+        .ToList();
+
+    /// <summary>Every open issue, and every issue closed from the day of <paramref name="since"/> on.</summary>
+    public async Task<IReadOnlyList<IssueSpan>> IssueSpansAsync(string folder, DateTimeOffset since, CancellationToken ct)
+    {
+        var open = await WholeListAsync(folder, ct, "issue", "list", "--state", "open", "--json", "number,createdAt");
+        var closed = await WholeListAsync(folder, ct, "issue", "list", "--state", "closed",
+            "--search", $"closed:>={since.UtcDateTime:yyyy-MM-dd}", "--json", "number,createdAt,closedAt");
+        // An issue closed between the two reads is in both lists. The closed entry comes first, so it is the one kept.
+        return closed.Concat(open)
+            .DistinctBy(e => e.GetProperty("number").GetInt32())
+            .Select(e => new IssueSpan(e.GetProperty("createdAt").GetDateTimeOffset(),
+                e.TryGetProperty("closedAt", out var at) ? at.GetDateTimeOffset() : null))
+            .ToList();
+    }
+
+    /// <summary>A gh list that must be complete: it fails when it reaches the limit, so a cut list is never counted.</summary>
+    private static async Task<List<JsonElement>> WholeListAsync(string folder, CancellationToken ct, params string[] args)
+    {
+        using var doc = JsonDocument.Parse(await RunAsync(folder, ct, [.. args, "--limit", $"{SearchLimit}"]));
+        var items = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+        return items.Count < SearchLimit ? items
+            : throw new InvalidOperationException($"gh {args[0]} {args[1]} reached the limit of {SearchLimit} results");
     }
 
     /// <summary>The raw gh JSON of an issue with its comments, oldest first.</summary>

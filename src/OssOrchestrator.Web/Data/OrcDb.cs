@@ -100,6 +100,26 @@ public sealed class IssueStatus
     public bool Ignored { get; set; }
 }
 
+/// <summary>The totals of all repos at one moment, recorded by the agent.</summary>
+public sealed class HistoryPoint
+{
+    public DateTimeOffset At { get; set; }
+    public int Open { get; set; }
+    /// <summary>PRs merged in the 24 hours before <see cref="At"/>.</summary>
+    public int Merged24h { get; set; }
+    /// <summary>All open sessions. Null for a backfilled point.</summary>
+    public int? Sessions { get; set; }
+    /// <summary>Sessions that use a work slot. Null for a backfilled point.</summary>
+    public int? Running { get; set; }
+}
+
+/// <summary>The points of one UTC day, or the backfilled ones.</summary>
+public sealed class HistoryDoc
+{
+    public string Id { get; set; } = "";
+    public List<HistoryPoint> Points { get; set; } = [];
+}
+
 /// <summary>A GitHub event worth waking the agent for. The agent reads these from the change feed. Expires after 7 days.</summary>
 public sealed class EventDoc
 {
@@ -138,10 +158,17 @@ public sealed class OrcDb(Container config, Container commands, Container state,
         QueryCommandsAsync(new QueryDefinition("SELECT * FROM c WHERE c.processed = false OR c.createdAt > @lastPass")
             .WithParameter("@lastPass", lastPass));
 
-    private async Task<List<CommandDoc>> QueryCommandsAsync(QueryDefinition definition)
+    /// <summary>The history documents of the days from <paramref name="since"/> on. "history-backfill" sorts after the dates, so it comes too.</summary>
+    public Task<List<HistoryDoc>> HistoryAsync(DateTimeOffset since) =>
+        QueryAsync<HistoryDoc>(state, new QueryDefinition("SELECT * FROM c WHERE STARTSWITH(c.id, 'history-') AND c.id >= @from")
+            .WithParameter("@from", $"history-{since.UtcDateTime:yyyy-MM-dd}"));
+
+    private Task<List<CommandDoc>> QueryCommandsAsync(QueryDefinition definition) => QueryAsync<CommandDoc>(commands, definition);
+
+    private static async Task<List<T>> QueryAsync<T>(Container container, QueryDefinition definition)
     {
-        var result = new List<CommandDoc>();
-        var query = commands.GetItemQueryIterator<CommandDoc>(definition);
+        var result = new List<T>();
+        var query = container.GetItemQueryIterator<T>(definition);
         while (query.HasMoreResults) result.AddRange(await query.ReadNextAsync());
         return result;
     }

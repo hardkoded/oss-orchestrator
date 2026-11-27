@@ -1,4 +1,4 @@
-:root { color-scheme: light dark; --plane:#f9f9f9; --surface:#fff; --ink:#191919; --muted:#666; --line:#e7e7e7; --ring:rgba(11,11,11,.14); --link:#1b64be; --button:#1b64be; --hover:#eef4fd; --tint:#fdf3dc; --ask:#f2a600; --work:#257de0; --ready:#008a17; --checks:#a8a8a8; --wait:#6a4ce2; --bad:#c22f30; }
+:root { color-scheme: light dark; --plane:#f9f9f9; --surface:#fff; --ink:#191919; --muted:#666; --line:#e7e7e7; --ring:rgba(11,11,11,.14); --link:#1b64be; --button:#1b64be; --hover:#eef4fd; --tint:#fdf3dc; --ask:#f2a600; --work:#257de0; --ready:#008a17; --checks:#a8a8a8; --wait:#6a4ce2; --slot:#d9660f; --bad:#c22f30; }
 @media (prefers-color-scheme: dark) { :root { --plane:#0b0b0b; --surface:#191919; --ink:#efefef; --muted:#a3a3a3; --line:#303030; --ring:rgba(255,255,255,.16); --link:#6aabf1; --button:#2370cd; --hover:#1d2733; --tint:#2b2210; --ask:#d28e05; --work:#338ced; --ready:#0aac23; --checks:#6b6b6b; --wait:#9887ef; --bad:#eb6263; } }
 * { box-sizing:border-box; }
 [hidden] { display:none !important; }
@@ -32,7 +32,7 @@ ul, ol { list-style:none; margin:0; padding:0; }
 .layout { display:grid; grid-template-columns:minmax(0,1fr) 320px; align-items:start; max-width:1440px; margin:0 auto; }
 main { min-width:0; }
 .pane { display:none; }
-body[data-view=sessions] [data-pane=sessions], body[data-view=backlog] [data-pane=backlog], body[data-view=activity] [data-pane=activity] { display:block; }
+body[data-view=sessions] [data-pane=sessions], body[data-view=backlog] [data-pane=backlog], body[data-view=activity] [data-pane=activity], body[data-view=history] [data-pane=history] { display:block; }
 .repos { display:none; padding:4px 16px; background:var(--surface); }
 body[data-view=repos] .repos { display:block; grid-column:1 / -1; }
 body:not([data-view=sessions]) .detail { display:none; }
@@ -54,7 +54,20 @@ body[data-view=repos] main { display:none; }
 .legend { display:flex; flex-wrap:wrap; gap:2px 14px; margin:6px 0 0; font-size:12px; color:var(--muted); }
 .legend b { color:var(--ink); }
 .sw { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; }
-.ask { background:var(--ask); } .work { background:var(--work); } .ready { background:var(--ready); } .checks { background:var(--checks); } .wait { background:var(--wait); }
+.ask { background:var(--ask); } .work { background:var(--work); } .ready { background:var(--ready); } .checks { background:var(--checks); } .wait { background:var(--wait); } .slot { background:var(--slot); }
+
+.chart { margin:0; padding:14px; border-bottom:1px solid var(--line); background:var(--surface); }
+.chart h2 { font-size:13px; margin:0; }
+.chart .legend { margin:2px 0 10px; }
+.plot { display:grid; grid-template-columns:32px minmax(0,1fr); grid-template-rows:1fr 1fr; column-gap:8px; }
+.plot span, .axis { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; text-align:right; }
+.plot span:first-child { grid-area:1 / 1; align-self:start; translate:0 -50%; }
+.plot span:last-child { grid-area:2 / 1; align-self:end; translate:0 50%; }
+.plot svg { grid-area:1 / 2 / 3 / 3; width:100%; height:110px; overflow:visible; border-block:1px solid var(--line); }
+.plot path { fill:none; background:none; stroke-linecap:round; stroke-linejoin:round; stroke-width:2; vector-effect:non-scaling-stroke; }
+.plot path.dots { stroke-width:8; }
+.plot path.work { stroke:var(--work); } .plot path.ready { stroke:var(--ready); } .plot path.slot { stroke:var(--slot); }
+.axis { display:flex; justify-content:space-between; margin:6px 0 0; padding-left:40px; }
 
 .group h2 { display:flex; align-items:center; font-size:12px; margin:0; padding:14px 14px 6px; }
 summary { cursor:pointer; padding:14px; font-weight:600; }

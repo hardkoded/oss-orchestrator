@@ -1,16 +1,19 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Caching.Memory;
 using OssOrchestrator.Web.Data;
 
 namespace OssOrchestrator.Web.Pages;
 
-public sealed class IndexModel(OrcDb db) : PageModel
+public sealed class IndexModel(OrcDb db, IMemoryCache cache) : PageModel
 {
     public StateDoc? State { get; private set; }
     public ConfigDoc? Config { get; private set; }
     public List<CommandDoc> Recent { get; private set; } = [];
     public List<CommandDoc> Pending { get; private set; } = [];
     public SessionBoard Board { get; private set; } = SessionGroups.Build([], []);
+    public List<HistoryPoint> History { get; private set; } = [];
+    public string? HistoryError { get; private set; }
     public string? Error { get; private set; }
     public string? Message { get; private set; }
 
@@ -36,6 +39,21 @@ public sealed class IndexModel(OrcDb db) : PageModel
             Error = $"Could not read the database: {e.Message}";
             // The script keeps what is on screen when a refresh does not succeed.
             Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        }
+        // Apart from the rest, so a history failure leaves the dashboard working. The page reloads every 15 seconds,
+        // and the history changes slowly, so it is read every 5 minutes. A failed read is not kept.
+        try
+        {
+            History = await cache.GetOrCreateAsync("history", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                var now = DateTimeOffset.UtcNow;
+                return HistoryChart.Points(await db.HistoryAsync(now.AddDays(-HistoryChart.Days)), now);
+            }) ?? [];
+        }
+        catch (Exception e)
+        {
+            HistoryError = $"Could not read the history: {e.Message}";
         }
     }
 

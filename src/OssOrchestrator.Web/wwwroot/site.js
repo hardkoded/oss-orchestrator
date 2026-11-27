@@ -15,7 +15,7 @@
         var hash = decodeURIComponent(location.hash.slice(1));
         var slash = hash.indexOf("/");
         var view = slash < 0 ? hash : hash.slice(0, slash);
-        if (["backlog", "activity", "repos"].indexOf(view) < 0 || (view === "repos" && wide.matches)) view = "sessions";
+        if (["backlog", "activity", "history", "repos"].indexOf(view) < 0 || (view === "repos" && wide.matches)) view = "sessions";
         return { view: view, key: view === "sessions" && slash >= 0 ? hash.slice(slash + 1) : null };
     }
 
