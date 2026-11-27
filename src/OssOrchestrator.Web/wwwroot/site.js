@@ -6,7 +6,7 @@
     var toast = document.getElementById("toast");
     var sheet = document.getElementById("sheet");
     var filters = { q: "", repo: "all", state: "free" };
-    var busyOpen = false, posting = 0, sending = Promise.resolve(), openedHere = false, touched = 0, poll, toastTimer;
+    var busyOpen = false, posting = 0, sending = Promise.resolve(), openedHere = false, touched = 0, poll, toastTimer, pointer;
 
     function all(selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); }
 
@@ -99,6 +99,39 @@
         times();
     }
 
+    // A history chart shows the values nearest to the pointer. The chart is looked up by position each time, so the
+    // values stay after a refresh replaces it.
+    function inspect() {
+        all(".cursor, .tip").forEach(function (el) { el.hidden = true; });
+        var under = pointer && document.elementFromPoint(pointer.x, pointer.y);
+        var area = under && under.closest(".area");
+        if (!area) return;
+        var box = area.getBoundingClientRect(), width = area.querySelector("svg").viewBox.baseVal.width;
+        var x = (pointer.x - box.left) / box.width * width;
+        var readings = JSON.parse(area.dataset.readings);
+        if (!readings.length) return;
+        var near = readings.reduce(function (a, b) { return Math.abs(b[0] - x) < Math.abs(a[0] - x) ? b : a; });
+        var cursor = area.querySelector(".cursor"), tip = area.querySelector(".tip"), at = near[0] / width * 100 + "%";
+        var when = document.createElement("span");
+        // In UTC, like the dates under the chart.
+        when.textContent = new Date(near[1]).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" });
+        tip.replaceChildren(when);
+        all(".legend span", area.closest(".chart")).forEach(function (name, i) {
+            var line = name.cloneNode(true), value = near[i + 2];
+            line.querySelector("b").textContent = value === null ? "–" : value;
+            tip.appendChild(line);
+        });
+        cursor.style.left = tip.style.left = at;
+        // The box moves left by the same share of its width, so it never leaves the chart.
+        tip.style.translate = "-" + at;
+        cursor.hidden = tip.hidden = false;
+    }
+
+    function point(e) {
+        pointer = e && { x: e.clientX, y: e.clientY };
+        inspect();
+    }
+
     // The message of the last command comes with the page; it moves to the live region, which is never replaced.
     function flash() {
         var message = document.querySelector(".flash");
@@ -132,6 +165,7 @@
         var shown = shownCard();
         if (card && shown && shown.dataset.key === card.dataset.key) shown.scrollTop = cardY;
         scrollTo(0, y);
+        inspect();
     }
 
     function shownCard() { return document.querySelector(".detail .card:not([hidden])"); }
@@ -267,6 +301,12 @@
         render();
         next.focus();
     });
+
+    // A mouse shows values as it moves; a finger shows them with a tap or a sideways drag.
+    document.addEventListener("pointermove", point);
+    document.addEventListener("pointerdown", point);
+    document.documentElement.addEventListener("pointerleave", function (e) { if (e.pointerType === "mouse") point(null); });
+    addEventListener("scroll", function () { point(null); }, { passive: true });
 
     sheet.addEventListener("cancel", function (e) { e.preventDefault(); closeSheet(); });
     addEventListener("hashchange", render);

@@ -421,18 +421,34 @@
                                 </p>
                             </figcaption>
                             <div class="plot">
-                                <span>@chart.Max</span>
-                                <svg viewBox="0 0 @HistoryChart.Width @HistoryChart.Height" preserveAspectRatio="none" role="img"
-                                     aria-label="@chart.Title over the last @HistoryChart.Days days, from @chart.Min to @chart.Max">
-                                    @foreach (var line in chart.Lines)
+                                <div class="ticks" aria-hidden="true">
+                                    @foreach (var tick in chart.Ticks)
                                     {
-                                        <path class="line @line.Color" d="@line.Path" />
-                                        <path class="dots @line.Color" d="@line.Dots" />
+                                        <span style="bottom:@((tick * 100.0 / chart.Ticks[^1]).ToString(System.Globalization.CultureInfo.InvariantCulture))%">@tick</span>
                                     }
-                                </svg>
-                                <span>@chart.Min</span>
+                                </div>
+                                <div class="area" data-readings="@chart.Readings">
+                                    <svg viewBox="0 0 @HistoryChart.Width @HistoryChart.Height" preserveAspectRatio="none" role="img"
+                                         aria-label="@chart.Title over the last @HistoryChart.Days days, from 0 to @chart.Ticks[^1]">
+                                        <path class="grid" d="@chart.Grid" />
+                                        @foreach (var line in chart.Lines)
+                                        {
+                                            <path class="line @line.Color" d="@line.Path" />
+                                            <path class="dots @line.Color" d="@line.Dots" />
+                                        }
+                                    </svg>
+                                    <i class="cursor" hidden></i>
+                                    <div class="tip" hidden></div>
+                                </div>
                             </div>
-                            <p class="axis"><span>@HistoryChart.Days days ago</span><span>now</span></p>
+                            <div class="axis">
+                                @foreach (var (percent, label) in HistoryChart.Dates(now))
+                                {
+                                    // A label moves left by the same share of its width, so none leaves the chart.
+                                    var at = percent.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+                                    <span style="left:@(at)%;translate:-@(at)%">@label</span>
+                                }
+                            </div>
                         </figure>
                     }
                 }
